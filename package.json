@@ -8,6 +8,9 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "tsx watch --env-file .env.development src/index.ts",
+    "build": "tsc",
+    "start": "cross-env NODE_ENV=production node dist/index.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
@@ -27,9 +30,14 @@
   "homepage": "https://github.com/shillwil/recess-backend#readme",
   "dependencies": {
     "@types/pg": "^8.15.4",
-    "dotenv": "^17.0.1",
     "drizzle-kit": "^0.31.4",
     "drizzle-orm": "^0.44.2",
     "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.10",
+    "cross-env": "^7.0.3",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
   }
 }

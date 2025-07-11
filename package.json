@@ -12,9 +12,9 @@
     "build": "tsc",
     "start": "cross-env NODE_ENV=production node dist/index.js",
     "db:generate": "cross-env NODE_ENV=development drizzle-kit generate",
-    "db:migrate": "cross-env NODE_ENV=development drizzle-kit migrate",
-    "db:push": "cross-env NODE_ENV=development drizzle-kit push",
-    "db:studio": "cross-env NODE_ENV=development drizzle-kit studio",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
     "db:drop": "cross-env NODE_ENV=development drizzle-kit drop"
   },
   "repository": {
@@ -38,6 +38,7 @@
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.0.10",
     "cross-env": "^7.0.3",
     "dotenv": "^17.0.1",

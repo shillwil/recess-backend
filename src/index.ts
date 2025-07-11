@@ -1,23 +1,34 @@
-import { db } from './db';
+import './services/firebase'; // Initializes Firebase Admin SDK
+import express from 'express';
 import { config } from './config';
+import { AuthenticatedRequest, firebaseAuthMiddleware } from './middleware/auth';
+import { getOrCreateUser } from './services/userService';
 
-async function main() {
-  console.log(`Application starting in ${config.env} mode...`);
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-  // Example: You can perform a simple query to test the DB connection
+app.use(express.json());
+
+// Public route
+app.get('/', (req, res) => {
+  res.send(`Recess backend is running in ${config.env} mode.`);
+});
+
+// Protected route
+app.get('/api/me', firebaseAuthMiddleware, async (req: AuthenticatedRequest, res) => {
+    // The middleware has already verified the token. Now, get or create the user in our database.
   try {
-    // Drizzle doesn't have a direct 'ping' or 'connect' method that returns a promise,
-    // so we'll just log that the db object is initialized.
-    // A real query would be needed to truly test the connection.
-    console.log('Database client initialized.');
-    console.log('Successfully connected to the database using config:', config.database.url?.substring(0, config.database.url.indexOf('@')) + '@...host:port/database');
-
-    // You can start your server here, e.g., app.listen(...)
-
+    const userRecord = await getOrCreateUser(req.user!);
+    res.json({
+      message: 'Authentication successful. User profile retrieved from database.',
+      user: userRecord,
+    });
   } catch (error) {
-    console.error('Failed to connect to the database:', error);
-    process.exit(1);
+    console.error('Error in /api/me endpoint:', error);
+    res.status(500).json({ message: 'An error occurred while fetching user data.' });
   }
-}
+});
 
-main();
+app.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT} in ${config.env} mode`);
+});

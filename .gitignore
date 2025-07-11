@@ -65,6 +65,7 @@ web_modules/
 
 # Optional REPL history
 .node_repl_history
+test-auth.html
 
 # Output of 'npm pack'
 *.tgz

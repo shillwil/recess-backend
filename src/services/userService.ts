@@ -14,7 +14,7 @@ export const getOrCreateUser = async (decodedToken: admin.auth.DecodedIdToken) =
   const existingUser = await db
     .select()
     .from(users)
-    .where(eq(users.firebase_uid, decodedToken.uid))
+    .where(eq(users.firebaseUid, decodedToken.uid))
     .limit(1);
 
   if (existingUser.length > 0) {
@@ -31,11 +31,11 @@ export const getOrCreateUser = async (decodedToken: admin.auth.DecodedIdToken) =
   const handle = `${decodedToken.email.split('@')[0]}${Math.floor(1000 + Math.random() * 9000)}`;
 
   const newUser = {
-    firebase_uid: decodedToken.uid,
+    firebaseUid: decodedToken.uid,
     email: decodedToken.email,
     handle: handle,
-    name: decodedToken.name || null, // Use name from token, or null
-    profile_picture_url: decodedToken.picture || null, // Use picture from token, or null
+    displayName: decodedToken.name || undefined, // Use name from token, or undefined
+    profilePictureUrl: decodedToken.picture || undefined, // Use picture from token, or undefined
   };
 
   const insertedUsers = await db.insert(users).values(newUser).returning();

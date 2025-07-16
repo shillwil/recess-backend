@@ -191,3 +191,6 @@ build/
 .env.development.local
 .env.staging.local
 .env.production.local
+
+# Documentation Files
+COMMIT_STRATEGY.md

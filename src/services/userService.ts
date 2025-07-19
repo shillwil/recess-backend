@@ -14,13 +14,10 @@ export const getOrCreateUser = async (decodedToken: admin.auth.DecodedIdToken) =
   const existingUser = await db
     .select()
     .from(users)
-    .where(eq(users.firebase_uid, decodedToken.uid))
+    .where(eq(users.firebaseUid, decodedToken.uid))
     .limit(1);
 
-  console.log('🔍 Existing user check result:', existingUser.length > 0 ? 'User found' : 'User not found');
-
   if (existingUser.length > 0) {
-    console.log('✅ Updating existing user:', existingUser[0].id);
     // Update last synced timestamp
     const updatedUser = await db
       .update(users)
@@ -31,22 +28,18 @@ export const getOrCreateUser = async (decodedToken: admin.auth.DecodedIdToken) =
       .where(eq(users.firebaseUid, decodedToken.uid))
       .returning();
     
-    console.log('✅ User updated successfully');
     return updatedUser[0] || existingUser[0];
   }
 
   // 2. If the user does not exist, create a new record
-  console.log('🆕 Creating new user in database...');
   
   if (!decodedToken.email) {
-    console.error('❌ Cannot create user without email');
     throw new Error('Cannot create user without an email.');
   }
 
   // Generate a simple unique handle from the email.
   // e.g., 'john.doe@email.com' -> 'john.doe1234'
   let handle = `${decodedToken.email.split('@')[0]}${Math.floor(1000 + Math.random() * 9000)}`;
-  console.log('🔍 Generated handle:', handle);
   
   // Ensure handle is unique
   let attempts = 0;
@@ -64,7 +57,7 @@ export const getOrCreateUser = async (decodedToken: admin.auth.DecodedIdToken) =
   }
 
   const newUser = {
-    firebase_uid: decodedToken.uid,
+    firebaseUid: decodedToken.uid,
     email: decodedToken.email,
     handle: handle,
     displayName: decodedToken.name || undefined,
@@ -72,20 +65,16 @@ export const getOrCreateUser = async (decodedToken: admin.auth.DecodedIdToken) =
     lastSyncedAt: new Date(),
   };
 
-  console.log('🔍 Attempting to insert new user:', newUser);
 
   try {
     const insertedUsers = await db.insert(users).values(newUser).returning();
 
     if (insertedUsers.length === 0) {
-      console.error('❌ Insert returned no rows');
       throw new Error('Failed to create new user in the database.');
     }
 
-    console.log('✅ New user created successfully:', insertedUsers[0]);
     return insertedUsers[0];
   } catch (error) {
-    console.error('❌ Database error during user creation:', error);
     throw error;
   }
 };

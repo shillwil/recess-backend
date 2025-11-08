@@ -18,31 +18,104 @@ export const getOrCreateUser = async (decodedToken: admin.auth.DecodedIdToken) =
     .limit(1);
 
   if (existingUser.length > 0) {
-    return existingUser[0];
+    // Update last synced timestamp
+    const updatedUser = await db
+      .update(users)
+      .set({ 
+        lastSyncedAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(users.firebaseUid, decodedToken.uid))
+      .returning();
+    
+    return updatedUser[0] || existingUser[0];
   }
 
   // 2. If the user does not exist, create a new record
+  
   if (!decodedToken.email) {
     throw new Error('Cannot create user without an email.');
   }
 
   // Generate a simple unique handle from the email.
   // e.g., 'john.doe@email.com' -> 'john.doe1234'
-  const handle = `${decodedToken.email.split('@')[0]}${Math.floor(1000 + Math.random() * 9000)}`;
+  let handle = `${decodedToken.email.split('@')[0]}${Math.floor(1000 + Math.random() * 9000)}`;
+  
+  // Ensure handle is unique
+  let attempts = 0;
+  while (attempts < 5) {
+    const existingHandle = await db
+      .select()
+      .from(users)
+      .where(eq(users.handle, handle))
+      .limit(1);
+    
+    if (existingHandle.length === 0) break;
+    
+    handle = `${decodedToken.email.split('@')[0]}${Math.floor(1000 + Math.random() * 9000)}`;
+    attempts++;
+  }
 
   const newUser = {
     firebaseUid: decodedToken.uid,
     email: decodedToken.email,
     handle: handle,
-    displayName: decodedToken.name || undefined, // Use name from token, or undefined
-    profilePictureUrl: decodedToken.picture || undefined, // Use picture from token, or undefined
+    displayName: decodedToken.name || undefined,
+    profilePictureUrl: decodedToken.picture || undefined,
+    lastSyncedAt: new Date(),
   };
 
-  const insertedUsers = await db.insert(users).values(newUser).returning();
 
-  if (insertedUsers.length === 0) {
-    throw new Error('Failed to create new user in the database.');
+  try {
+    const insertedUsers = await db.insert(users).values(newUser).returning();
+
+    if (insertedUsers.length === 0) {
+      throw new Error('Failed to create new user in the database.');
+    }
+
+    return insertedUsers[0];
+  } catch (error) {
+    throw error;
+  }
+};
+
+/**
+ * Updates a user's profile information
+ * @param firebaseUid The Firebase UID of the user
+ * @param updates Object containing the fields to update
+ * @returns The updated user record
+ */
+export const updateUserProfile = async (firebaseUid: string, updates: Partial<{
+  displayName: string;
+  bio: string;
+  height: number;
+  weight: number;
+  age: number;
+  gender: 'male' | 'female' | 'other' | 'prefer_not_to_say';
+  unitPreference: 'metric' | 'imperial';
+  isPublicProfile: boolean;
+  notificationsEnabled: boolean;
+}>) => {
+  // Remove any undefined values and add sync timestamp
+  const cleanUpdates = Object.fromEntries(
+    Object.entries(updates).filter(([_, value]) => value !== undefined)
+  );
+  
+  const updateData = {
+    ...cleanUpdates,
+    lastSyncedAt: new Date(),
+    updatedAt: new Date()
+  };
+
+  const updatedUsers = await db
+    .update(users)
+    .set(updateData)
+    .where(eq(users.firebaseUid, firebaseUid))
+    .returning();
+
+  if (updatedUsers.length === 0) {
+    throw new Error('User not found or update failed.');
   }
 
-  return insertedUsers[0];
+  return updatedUsers[0];
 };

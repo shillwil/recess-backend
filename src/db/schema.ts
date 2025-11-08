@@ -29,6 +29,11 @@ export const muscleGroupEnum = pgEnum('muscle_group', [
   'forearms', 'traps', 'lats'
 ]);
 
+// Sync-related enums
+export const syncOperationEnum = pgEnum('sync_operation', ['create', 'update', 'delete']);
+export const syncStatusEnum = pgEnum('sync_status', ['pending', 'syncing', 'completed', 'failed']);
+export const conflictResolutionEnum = pgEnum('conflict_resolution', ['client_wins', 'server_wins', 'merged']);
+
 // Users table - Core user data with sync tracking
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -183,6 +188,9 @@ export const workouts = pgTable('workouts', {
   userId: uuid('user_id').references(() => users.id).notNull(),
   templateId: uuid('template_id').references(() => workoutTemplates.id),
   
+  // Client ID for mapping to Core Data
+  clientId: uuid('client_id'), // Maps to Core Data UUID
+  
   // Workout data
   date: timestamp('date').notNull(),
   name: varchar('name', { length: 200 }),
@@ -205,7 +213,8 @@ export const workouts = pgTable('workouts', {
 }, (table) => ({
   userIdIdx: index('workouts_user_id_idx').on(table.userId),
   dateIdx: index('workouts_date_idx').on(table.date),
-  userDateIdx: index('workouts_user_date_idx').on(table.userId, table.date)
+  userDateIdx: index('workouts_user_date_idx').on(table.userId, table.date),
+  clientIdIdx: index('workouts_client_id_idx').on(table.clientId)
 }));
 
 // Workout exercises - Exercises performed in a workout
@@ -214,6 +223,9 @@ export const workoutExercises = pgTable('workout_exercises', {
   workoutId: uuid('workout_id').references(() => workouts.id, { onDelete: 'cascade' }).notNull(),
   exerciseId: uuid('exercise_id').references(() => exercises.id).notNull(),
   orderIndex: integer('order_index').notNull(),
+  
+  // Client ID for mapping to Core Data
+  clientId: uuid('client_id'), // Maps to Core Data UUID
   
   // Exercise metadata
   exerciseName: varchar('exercise_name', { length: 100 }).notNull(), // Denormalized for performance
@@ -227,13 +239,17 @@ export const workoutExercises = pgTable('workout_exercises', {
   updatedAt: timestamp('updated_at').defaultNow().notNull()
 }, (table) => ({
   workoutIdIdx: index('workout_exercises_workout_id_idx').on(table.workoutId),
-  workoutOrderIdx: index('workout_exercises_workout_order_idx').on(table.workoutId, table.orderIndex)
+  workoutOrderIdx: index('workout_exercises_workout_order_idx').on(table.workoutId, table.orderIndex),
+  clientIdIdx: index('workout_exercises_client_id_idx').on(table.clientId)
 }));
 
 // Sets - Individual sets within an exercise
 export const sets = pgTable('sets', {
   id: uuid('id').defaultRandom().primaryKey(),
   workoutExerciseId: uuid('workout_exercise_id').references(() => workoutExercises.id, { onDelete: 'cascade' }).notNull(),
+  
+  // Client ID for mapping to Core Data
+  clientId: uuid('client_id'), // Maps to Core Data UUID
   
   // Set data
   setNumber: integer('set_number').notNull(),
@@ -253,7 +269,8 @@ export const sets = pgTable('sets', {
   updatedAt: timestamp('updated_at').defaultNow().notNull()
 }, (table) => ({
   workoutExerciseIdIdx: index('sets_workout_exercise_id_idx').on(table.workoutExerciseId),
-  workoutExerciseSetIdx: index('sets_workout_exercise_set_idx').on(table.workoutExerciseId, table.setNumber)
+  workoutExerciseSetIdx: index('sets_workout_exercise_set_idx').on(table.workoutExerciseId, table.setNumber),
+  clientIdIdx: index('sets_client_id_idx').on(table.clientId)
 }));
 
 // Personal records
@@ -430,4 +447,129 @@ export const setsRelations = relations(sets, ({ one }) => ({
     fields: [sets.workoutExerciseId],
     references: [workoutExercises.id]
   })
+}));
+
+// Sync metadata table - tracks sync operations per user
+export const syncMetadata = pgTable('sync_metadata', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  
+  // Last successful sync timestamps
+  lastSyncStarted: timestamp('last_sync_started'),
+  lastSyncCompleted: timestamp('last_sync_completed'),
+  lastSyncFailed: timestamp('last_sync_failed'),
+  
+  // Sync status
+  currentSyncStatus: syncStatusEnum('current_sync_status').default('completed'),
+  lastSyncError: jsonb('last_sync_error').$type<{
+    code: string;
+    message: string;
+    timestamp: string;
+    details?: any;
+  }>(),
+  
+  // Sync statistics
+  totalSyncs: integer('total_syncs').default(0),
+  successfulSyncs: integer('successful_syncs').default(0),
+  failedSyncs: integer('failed_syncs').default(0),
+  
+  // Device information
+  lastSyncDeviceId: varchar('last_sync_device_id', { length: 255 }),
+  lastSyncAppVersion: varchar('last_sync_app_version', { length: 50 }),
+  
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
+}, (table) => ({
+  userIdIdx: index('sync_metadata_user_id_idx').on(table.userId)
+}));
+
+// Sync queue - tracks pending sync operations
+export const syncQueue = pgTable('sync_queue', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  
+  // Operation details
+  entityType: varchar('entity_type', { length: 50 }).notNull(), // 'workout', 'exercise', 'set'
+  entityId: uuid('entity_id').notNull(),
+  operation: syncOperationEnum('operation').notNull(),
+  
+  // Sync tracking
+  status: syncStatusEnum('status').default('pending').notNull(),
+  attempts: integer('attempts').default(0),
+  lastAttemptAt: timestamp('last_attempt_at'),
+  
+  // Data payload
+  data: jsonb('data').notNull(), // The actual entity data to sync
+  clientTimestamp: timestamp('client_timestamp').notNull(),
+  
+  // Error tracking
+  lastError: jsonb('last_error').$type<{
+    code: string;
+    message: string;
+    timestamp: string;
+  }>(),
+  
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, (table) => ({
+  userIdIdx: index('sync_queue_user_id_idx').on(table.userId),
+  statusIdx: index('sync_queue_status_idx').on(table.status),
+  entityTypeIdx: index('sync_queue_entity_type_idx').on(table.entityType)
+}));
+
+// Conflict log - tracks and resolves sync conflicts
+export const syncConflictLog = pgTable('sync_conflict_log', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  
+  // Conflict details
+  entityType: varchar('entity_type', { length: 50 }).notNull(),
+  entityId: uuid('entity_id').notNull(),
+  
+  // Conflict data
+  clientData: jsonb('client_data').notNull(),
+  serverData: jsonb('server_data').notNull(),
+  resolvedData: jsonb('resolved_data'),
+  
+  // Timestamps
+  clientTimestamp: timestamp('client_timestamp').notNull(),
+  serverTimestamp: timestamp('server_timestamp').notNull(),
+  
+  // Resolution
+  resolution: conflictResolutionEnum('resolution'),
+  resolvedAt: timestamp('resolved_at'),
+  resolvedBy: varchar('resolved_by', { length: 50 }), // 'system' or 'user'
+  
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, (table) => ({
+  userIdIdx: index('sync_conflict_log_user_id_idx').on(table.userId),
+  entityIdx: index('sync_conflict_log_entity_idx').on(table.entityType, table.entityId)
+}));
+
+// Device registry - tracks devices for better sync management
+export const userDevices = pgTable('user_devices', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  
+  // Device info
+  deviceId: varchar('device_id', { length: 255 }).notNull(),
+  deviceName: varchar('device_name', { length: 100 }),
+  deviceType: varchar('device_type', { length: 50 }), // 'ios', 'android', 'web'
+  appVersion: varchar('app_version', { length: 50 }),
+  osVersion: varchar('os_version', { length: 50 }),
+  
+  // Push notification token for this device
+  pushToken: varchar('push_token', { length: 500 }),
+  
+  // Activity tracking
+  lastActiveAt: timestamp('last_active_at'),
+  lastSyncAt: timestamp('last_sync_at'),
+  
+  // Status
+  isActive: boolean('is_active').default(true),
+  
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
+}, (table) => ({
+  userDeviceIdx: index('user_devices_user_device_idx').on(table.userId, table.deviceId),
+  userIdIdx: index('user_devices_user_id_idx').on(table.userId)
 }));

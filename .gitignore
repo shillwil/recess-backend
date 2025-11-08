@@ -194,3 +194,6 @@ build/
 
 # Documentation Files
 COMMIT_STRATEGY.md
+
+# drizzle migration files
+drizzle/migrations/meta/*

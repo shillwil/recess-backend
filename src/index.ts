@@ -1,9 +1,10 @@
 import './services/firebase'; // Initializes Firebase Admin SDK
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { config } from './config';
 import { AuthenticatedRequest, firebaseAuthMiddleware } from './middleware/auth';
 import { getOrCreateUser, updateUserProfile } from './services/userService';
+import { SyncService, SyncPayload } from './services/syncService';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,7 +17,7 @@ app.use(cors({
 }));
 
 // Health check endpoint
-app.get('/health', (req, res) => {
+app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({
     status: 'healthy',
     environment: config.env,
@@ -26,12 +27,12 @@ app.get('/health', (req, res) => {
 });
 
 // Public route
-app.get('/', (req, res) => {
+app.get('/', (req: Request, res: Response) => {
   res.send(`Recess backend is running in ${config.env} mode.`);
 });
 
 // Authentication endpoint - get or create user
-app.post('/api/auth/login', firebaseAuthMiddleware, async (req: AuthenticatedRequest, res) => {
+app.post('/api/auth/login', firebaseAuthMiddleware, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const userRecord = await getOrCreateUser(req.user!);
     res.status(200).json({
@@ -50,7 +51,7 @@ app.post('/api/auth/login', firebaseAuthMiddleware, async (req: AuthenticatedReq
 });
 
 // Get current user profile
-app.get('/api/me', firebaseAuthMiddleware, async (req: AuthenticatedRequest, res) => {
+app.get('/api/me', firebaseAuthMiddleware, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const userRecord = await getOrCreateUser(req.user!);
     res.status(200).json({
@@ -68,7 +69,7 @@ app.get('/api/me', firebaseAuthMiddleware, async (req: AuthenticatedRequest, res
 });
 
 // Update user profile
-app.put('/api/me', firebaseAuthMiddleware, async (req: AuthenticatedRequest, res) => {
+app.put('/api/me', firebaseAuthMiddleware, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const updates = req.body;
     const updatedUser = await updateUserProfile(req.user!.uid, updates);
@@ -87,8 +88,43 @@ app.put('/api/me', firebaseAuthMiddleware, async (req: AuthenticatedRequest, res
   }
 });
 
+// Sync endpoint - sync user's workout data
+app.post('/api/sync', firebaseAuthMiddleware, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    // Validate required fields
+    const payload = req.body as SyncPayload;
+    
+    if (!payload.deviceId) {
+      res.status(400).json({
+        success: false,
+        message: 'Device ID is required for sync'
+      });
+      return;
+    }
+
+    // Get user ID from Firebase auth
+    const userRecord = await getOrCreateUser(req.user!);
+    
+    // Perform sync
+    const syncResult = await SyncService.syncUserData(userRecord.id, req.body as SyncPayload);
+    
+    res.status(200).json({
+      success: true,
+      message: 'Sync completed successfully',
+      data: syncResult
+    });
+  } catch (error) {
+    console.error('Error in /api/sync endpoint:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to sync user data',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 // Global error handler
-app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   console.error('Unhandled error:', err);
   res.status(500).json({
     success: false,
@@ -98,7 +134,7 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
 });
 
 // 404 handler
-app.use((req, res) => {
+app.use((req: Request, res: Response) => {
   res.status(404).json({
     success: false,
     message: 'Endpoint not found',

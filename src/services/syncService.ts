@@ -159,15 +159,14 @@ export class SyncService {
     clientTimestamp: Date
   ) {
     const serverTimestamp = existingWorkout.updatedAt;
-    const timeDiff = Math.abs(clientTimestamp.getTime() - serverTimestamp.getTime());
-    
-    // If timestamps are very close, prefer client data
-    if (timeDiff <= this.CONFLICT_THRESHOLD_MS || clientTimestamp > serverTimestamp) {
-      // Client wins - update server data
+
+    // Symmetric resolution: prefer the version with the newer timestamp
+    if (clientTimestamp > serverTimestamp) {
+      // Client has newer timestamp - update server data
       await this.updateWorkoutFromSync(existingWorkout.id, clientData, clientTimestamp);
       return { conflict: null };
     } else {
-      // Server data is newer - log conflict
+      // Server has newer or equal timestamp - log conflict
       const conflict: ConflictData = {
         entityType: 'workout',
         entityId: existingWorkout.id,
@@ -446,7 +445,8 @@ export class SyncService {
       updateData.successfulSyncs = (existing.successfulSyncs ?? 0) + 1;
     } else if (status === 'failed') {
       updateData.lastSyncFailed = new Date();
-      const existing = existingMetadata[0] ?? { failedSyncs: 0 };
+      const existing = existingMetadata[0] ?? { failedSyncs: 0, totalSyncs: 0 };
+      updateData.totalSyncs = (existing.totalSyncs ?? 0) + 1;
       updateData.failedSyncs = (existing.failedSyncs ?? 0) + 1;
       updateData.lastSyncError = error ? {
         code: 'SYNC_ERROR',

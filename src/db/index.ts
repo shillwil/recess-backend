@@ -10,17 +10,25 @@ const pool = new Pool({
 
 // Test database connection
 pool.connect((err, client, done) => {
-  if (client) {
-    console.log('✅ Successfully connected to PostgreSQL database');
-    client.query('SELECT current_database()', (err, result) => {
-      done();
-      if (err) {
-        console.error('❌ Failed to query database:', err);
-      } else {
-        console.log('✅ Connected to database:', result.rows[0].current_database);
-      }
-    });
+  if (err) {
+    console.error('❌ Failed to connect to PostgreSQL database:', err);
+    return;
   }
+
+  if (!client) {
+    console.error('❌ Unexpected: No client provided despite no connection error');
+    return;
+  }
+
+  console.log('✅ Successfully connected to PostgreSQL database');
+  client.query('SELECT current_database()', (queryErr, result) => {
+    done();
+    if (queryErr) {
+      console.error('❌ Failed to query database:', queryErr);
+    } else {
+      console.log('✅ Connected to database:', result.rows[0].current_database);
+    }
+  });
 });
 
 // Initialize Drizzle with the connection pool and schema

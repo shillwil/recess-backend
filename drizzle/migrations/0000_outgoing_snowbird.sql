@@ -1,9 +1,12 @@
 CREATE TYPE "public"."competition_status" AS ENUM('draft', 'active', 'completed', 'cancelled');--> statement-breakpoint
 CREATE TYPE "public"."competition_type" AS ENUM('individual', 'group', 'team');--> statement-breakpoint
+CREATE TYPE "public"."conflict_resolution" AS ENUM('client_wins', 'server_wins', 'merged');--> statement-breakpoint
 CREATE TYPE "public"."gender" AS ENUM('male', 'female', 'other', 'prefer_not_to_say');--> statement-breakpoint
 CREATE TYPE "public"."muscle_group" AS ENUM('chest', 'back', 'shoulders', 'biceps', 'triceps', 'quads', 'hamstrings', 'glutes', 'calves', 'abs', 'forearms', 'traps', 'lats');--> statement-breakpoint
 CREATE TYPE "public"."privacy_level" AS ENUM('private', 'friends', 'public');--> statement-breakpoint
 CREATE TYPE "public"."set_type" AS ENUM('warmup', 'working');--> statement-breakpoint
+CREATE TYPE "public"."sync_operation" AS ENUM('create', 'update', 'delete');--> statement-breakpoint
+CREATE TYPE "public"."sync_status" AS ENUM('pending', 'syncing', 'completed', 'failed');--> statement-breakpoint
 CREATE TYPE "public"."unit_preference" AS ENUM('metric', 'imperial');--> statement-breakpoint
 CREATE TABLE "competition_participants" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
@@ -84,6 +87,7 @@ CREATE TABLE "progress_photos" (
 CREATE TABLE "sets" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workout_exercise_id" uuid NOT NULL,
+	"client_id" uuid,
 	"set_number" integer NOT NULL,
 	"reps" integer NOT NULL,
 	"weight_lbs" numeric(6, 2) NOT NULL,
@@ -94,6 +98,54 @@ CREATE TABLE "sets" (
 	"client_updated_at" timestamp,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "sync_conflict_log" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" uuid NOT NULL,
+	"entity_type" varchar(50) NOT NULL,
+	"entity_id" uuid NOT NULL,
+	"client_data" jsonb NOT NULL,
+	"server_data" jsonb NOT NULL,
+	"resolved_data" jsonb,
+	"client_timestamp" timestamp NOT NULL,
+	"server_timestamp" timestamp NOT NULL,
+	"resolution" "conflict_resolution",
+	"resolved_at" timestamp,
+	"resolved_by" varchar(50),
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "sync_metadata" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" uuid NOT NULL,
+	"last_sync_started" timestamp,
+	"last_sync_completed" timestamp,
+	"last_sync_failed" timestamp,
+	"current_sync_status" "sync_status" DEFAULT 'completed',
+	"last_sync_error" jsonb,
+	"total_syncs" integer DEFAULT 0,
+	"successful_syncs" integer DEFAULT 0,
+	"failed_syncs" integer DEFAULT 0,
+	"last_sync_device_id" varchar(255),
+	"last_sync_app_version" varchar(50),
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "sync_queue" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" uuid NOT NULL,
+	"entity_type" varchar(50) NOT NULL,
+	"entity_id" uuid NOT NULL,
+	"operation" "sync_operation" NOT NULL,
+	"status" "sync_status" DEFAULT 'pending' NOT NULL,
+	"attempts" integer DEFAULT 0,
+	"last_attempt_at" timestamp,
+	"data" jsonb NOT NULL,
+	"client_timestamp" timestamp NOT NULL,
+	"last_error" jsonb,
+	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "template_exercises" (
@@ -114,6 +166,22 @@ CREATE TABLE "template_likes" (
 	"template_id" uuid NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "template_likes_user_id_template_id_pk" PRIMARY KEY("user_id","template_id")
+);
+--> statement-breakpoint
+CREATE TABLE "user_devices" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" uuid NOT NULL,
+	"device_id" varchar(255) NOT NULL,
+	"device_name" varchar(100),
+	"device_type" varchar(50),
+	"app_version" varchar(50),
+	"os_version" varchar(50),
+	"push_token" varchar(500),
+	"last_active_at" timestamp,
+	"last_sync_at" timestamp,
+	"is_active" boolean DEFAULT true,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "user_follows" (
@@ -157,6 +225,7 @@ CREATE TABLE "workout_exercises" (
 	"workout_id" uuid NOT NULL,
 	"exercise_id" uuid NOT NULL,
 	"order_index" integer NOT NULL,
+	"client_id" uuid,
 	"exercise_name" varchar(100) NOT NULL,
 	"muscle_groups" jsonb NOT NULL,
 	"last_synced_at" timestamp,
@@ -201,6 +270,7 @@ CREATE TABLE "workouts" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" uuid NOT NULL,
 	"template_id" uuid,
+	"client_id" uuid,
 	"date" timestamp NOT NULL,
 	"name" varchar(200),
 	"duration_seconds" integer,
@@ -228,10 +298,14 @@ ALTER TABLE "program_weeks" ADD CONSTRAINT "program_weeks_program_id_workout_pro
 ALTER TABLE "program_weeks" ADD CONSTRAINT "program_weeks_template_id_workout_templates_id_fk" FOREIGN KEY ("template_id") REFERENCES "public"."workout_templates"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "progress_photos" ADD CONSTRAINT "progress_photos_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sets" ADD CONSTRAINT "sets_workout_exercise_id_workout_exercises_id_fk" FOREIGN KEY ("workout_exercise_id") REFERENCES "public"."workout_exercises"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "sync_conflict_log" ADD CONSTRAINT "sync_conflict_log_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "sync_metadata" ADD CONSTRAINT "sync_metadata_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "sync_queue" ADD CONSTRAINT "sync_queue_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "template_exercises" ADD CONSTRAINT "template_exercises_template_id_workout_templates_id_fk" FOREIGN KEY ("template_id") REFERENCES "public"."workout_templates"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "template_exercises" ADD CONSTRAINT "template_exercises_exercise_id_exercises_id_fk" FOREIGN KEY ("exercise_id") REFERENCES "public"."exercises"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "template_likes" ADD CONSTRAINT "template_likes_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "template_likes" ADD CONSTRAINT "template_likes_template_id_workout_templates_id_fk" FOREIGN KEY ("template_id") REFERENCES "public"."workout_templates"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "user_devices" ADD CONSTRAINT "user_devices_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_follows" ADD CONSTRAINT "user_follows_follower_id_users_id_fk" FOREIGN KEY ("follower_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_follows" ADD CONSTRAINT "user_follows_following_id_users_id_fk" FOREIGN KEY ("following_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "workout_exercises" ADD CONSTRAINT "workout_exercises_workout_id_workouts_id_fk" FOREIGN KEY ("workout_id") REFERENCES "public"."workouts"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -252,9 +326,18 @@ CREATE INDEX "progress_photos_user_id_idx" ON "progress_photos" USING btree ("us
 CREATE INDEX "progress_photos_user_taken_at_idx" ON "progress_photos" USING btree ("user_id","taken_at");--> statement-breakpoint
 CREATE INDEX "sets_workout_exercise_id_idx" ON "sets" USING btree ("workout_exercise_id");--> statement-breakpoint
 CREATE INDEX "sets_workout_exercise_set_idx" ON "sets" USING btree ("workout_exercise_id","set_number");--> statement-breakpoint
+CREATE INDEX "sets_client_id_idx" ON "sets" USING btree ("client_id");--> statement-breakpoint
+CREATE INDEX "sync_conflict_log_user_id_idx" ON "sync_conflict_log" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX "sync_conflict_log_entity_idx" ON "sync_conflict_log" USING btree ("entity_type","entity_id");--> statement-breakpoint
+CREATE INDEX "sync_metadata_user_id_idx" ON "sync_metadata" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX "sync_queue_user_id_idx" ON "sync_queue" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX "sync_queue_status_idx" ON "sync_queue" USING btree ("status");--> statement-breakpoint
+CREATE INDEX "sync_queue_entity_type_idx" ON "sync_queue" USING btree ("entity_type");--> statement-breakpoint
 CREATE INDEX "template_exercises_template_id_idx" ON "template_exercises" USING btree ("template_id");--> statement-breakpoint
 CREATE INDEX "template_exercises_template_order_idx" ON "template_exercises" USING btree ("template_id","order_index");--> statement-breakpoint
 CREATE INDEX "template_likes_template_idx" ON "template_likes" USING btree ("template_id");--> statement-breakpoint
+CREATE INDEX "user_devices_user_device_idx" ON "user_devices" USING btree ("user_id","device_id");--> statement-breakpoint
+CREATE INDEX "user_devices_user_id_idx" ON "user_devices" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "user_follows_follower_idx" ON "user_follows" USING btree ("follower_id");--> statement-breakpoint
 CREATE INDEX "user_follows_following_idx" ON "user_follows" USING btree ("following_id");--> statement-breakpoint
 CREATE INDEX "users_firebase_uid_idx" ON "users" USING btree ("firebase_uid");--> statement-breakpoint
@@ -262,9 +345,11 @@ CREATE INDEX "users_handle_idx" ON "users" USING btree ("handle");--> statement-
 CREATE INDEX "users_email_idx" ON "users" USING btree ("email");--> statement-breakpoint
 CREATE INDEX "workout_exercises_workout_id_idx" ON "workout_exercises" USING btree ("workout_id");--> statement-breakpoint
 CREATE INDEX "workout_exercises_workout_order_idx" ON "workout_exercises" USING btree ("workout_id","order_index");--> statement-breakpoint
+CREATE INDEX "workout_exercises_client_id_idx" ON "workout_exercises" USING btree ("client_id");--> statement-breakpoint
 CREATE INDEX "workout_programs_user_id_idx" ON "workout_programs" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "workout_templates_user_id_idx" ON "workout_templates" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "workout_templates_is_public_idx" ON "workout_templates" USING btree ("is_public");--> statement-breakpoint
 CREATE INDEX "workouts_user_id_idx" ON "workouts" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "workouts_date_idx" ON "workouts" USING btree ("date");--> statement-breakpoint
-CREATE INDEX "workouts_user_date_idx" ON "workouts" USING btree ("user_id","date");
+CREATE INDEX "workouts_user_date_idx" ON "workouts" USING btree ("user_id","date");--> statement-breakpoint
+CREATE INDEX "workouts_client_id_idx" ON "workouts" USING btree ("client_id");

@@ -1,14 +1,13 @@
 import { drizzle } from 'drizzle-orm/pg-proxy';  // Proxy wrapper
 import { drizzle as directDrizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
-import { config } from '../config';
-import * as schema from './schema';
+import * as schema from './db/schema';
 import { SignJWT } from 'jose';  // For proxy JWT
 
 const APP_SECRET = process.env.APP_SECRET!;  // Shared with proxy service
 const DATABASE_PROXY = process.env.DATABASE_PROXY!;  // e.g., https://proxy.railway.app
 
-// Direct client (for migrations)
+// Direct DB URL (Railway private TCP—no proxy)
 function getDirectDbUrl(): string {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL missing—link DB service in Railway');
@@ -18,6 +17,7 @@ function getDirectDbUrl(): string {
   return parsed.toString();
 }
 
+// Direct client (for migrations)
 export function getDirectClient() {
   return new Pool({
     connectionString: getDirectDbUrl(),
@@ -45,6 +45,3 @@ async function proxyQueryExecutor(sql: string, params: unknown[], method: string
 }
 
 export const db = drizzle(proxyQueryExecutor, { schema });  // Use this in your app
-
-// Export the schema for use in other files
-export * from './schema';

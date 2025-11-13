@@ -4,16 +4,23 @@ import { Pool } from 'pg';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import * as schema from '../src/db/schema.ts';  // Adjusted path based on project structure
+import { config } from 'dotenv';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Load env for local dev only
+if (process.env.NODE_ENV === 'development') {
+  config({ path: '.env.development' });
+}
 
 // Direct DB URL (Railway private TCP—no proxy)
 function getDirectDbUrl(): string {
   const url = process.env.DATABASE_URL;
-  if (!url) throw new Error('DATABASE_URL missing—link DB service in Railway');
+  if (!url) throw new Error('DATABASE_URL missing—set in .env.development locally or link in Railway');
   const parsed = new URL(url);
-  // Railway requires SSL for internal connections (self-signed certs)
-  parsed.searchParams.set('sslmode', 'require');
+  if (process.env.NODE_ENV !== 'development') {
+    parsed.searchParams.set('sslmode', 'require');
+  }
   return parsed.toString();
 }
 

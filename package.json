@@ -9,7 +9,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsx watch --env-file .env.development src/index.ts",
-    "build": "tsc",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node18 --outfile=dist/index.js && esbuild scripts/migrate.ts --bundle --platform=node --target=node18 --outfile=dist/scripts/migrate.js",
     "start": "cross-env NODE_ENV=production node dist/index.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
@@ -36,7 +36,8 @@
     "firebase-admin": "^13.4.0",
     "firebase-tools": "^14.22.0",
     "nodemon": "^3.1.10",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "esbuild": "^0.23.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

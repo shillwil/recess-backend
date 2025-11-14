@@ -23,7 +23,7 @@
 # CMD ["npm", "start"]
 
 # Build stage: Install all deps and compile TypeScript
-FROM node:18-alpine AS builder
+FROM node:20-alpine as builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -31,10 +31,12 @@ COPY . .
 RUN npm run build
 
 # Runtime stage: Install only production deps and copy built artifacts
-FROM node:18-alpine
+FROM node:20-alpine
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --only=production
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/dist/scripts ./dist/scripts
+COPY drizzle/migrations ./drizzle/migrations
 EXPOSE 3000
-CMD ["npm", "start"]
+CMD ["node", "dist/scripts/migrate.js", "&&", "node", "dist/index.js"]

@@ -9,9 +9,7 @@
     "forceConsistentCasingInFileNames": true,
     "outDir": "./dist/",
     "rootDir": "./src",
-    "moduleResolution": "node",
-    "allowImportingTsExtensions": true,
-    "noEmit": true
+    "moduleResolution": "node"
   },
   "include": ["src/**/*.js", "src/**/*.jsx", "src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["node_modules"]

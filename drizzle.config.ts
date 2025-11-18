@@ -3,7 +3,7 @@ import { defineConfig } from 'drizzle-kit';
 
 // Load environment variables from the correct .env file
 const env = process.env.NODE_ENV || 'development';
-config({ path: `.env.${env}` });
+// config({ path: `./.env.${env}` });
 
 // Check for the required DATABASE_URL
 if (!process.env.DATABASE_URL) {

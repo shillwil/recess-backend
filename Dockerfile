@@ -39,4 +39,4 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/dist/scripts ./dist/scripts
 COPY drizzle/migrations ./drizzle/migrations
 EXPOSE 3000
-CMD ["node", "dist/scripts/migrate.js", "&&", "node", "dist/index.js"]
+CMD ["node", "dist/index.js"]

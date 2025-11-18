@@ -7,7 +7,7 @@
     "example": "examples"
   },
   "scripts": {
-  "build": "tsc && esbuild ...",
+  "build": "tsc && esbuild",
   "start": "cross-env NODE_ENV=staging node dist/index.js",
   "start:staging": "npm run db:migrate && cross-env NODE_ENV=staging node dist/index.js",
   "start:prod": "npm run db:migrate && cross-env NODE_ENV=production node dist/index.js",

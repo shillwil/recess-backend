@@ -6,18 +6,6 @@
   "directories": {
     "example": "examples"
   },
-  // "scripts": {
-  //   "test": "echo \"Error: no test specified\" && exit 1",
-  //   "dev": "tsx watch --env-file .env.development src/index.ts",
-  //   "prebuild": "npm run db:generate",
-  //   "build": "npx tsc --noEmitOnError false || true",
-  //   "start": "cross-env NODE_ENV=production node dist/index.js",
-  //   "db:generate": "drizzle-kit generate",
-  //   "db:migrate": "drizzle-kit migrate",
-  //   "db:push": "drizzle-kit push:pg",
-  //   "db:studio": "drizzle-kit studio",
-  //   "db:drop": "cross-env NODE_ENV=development drizzle-kit drop"
-  // },
   "scripts": {
   "build": "tsc && esbuild ...",
   "start": "cross-env NODE_ENV=staging node dist/index.js",

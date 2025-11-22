@@ -63,6 +63,8 @@ export const getOrCreateUser = async (decodedToken: admin.auth.DecodedIdToken) =
     displayName: decodedToken.name || undefined,
     profilePictureUrl: decodedToken.picture || undefined,
     lastSyncedAt: new Date(),
+    createdAt: new Date(),
+    updatedAt: new Date()
   };
 
 

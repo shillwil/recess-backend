@@ -5,8 +5,6 @@ import { defineConfig } from 'drizzle-kit';
 // Detect if we're on Railway (RAILWAY_ENVIRONMENT_NAME is set there)
 const isRailway = !!process.env.RAILWAY_ENVIRONMENT_NAME;
 
-console.log("[drizzle.config] All env vars:", Object.keys(process.env));
-
 if (!isRailway) {
   // Local development: load from .env.development / .env.test / etc.
   const env = process.env.NODE_ENV || 'development';
@@ -24,7 +22,7 @@ if (!connectionString) {
 }
 
 export default defineConfig({
-  out: './drizzle/migrations',
+  out: './drizzle',
   schema: './src/db/schema.ts',
   dialect: 'postgresql',
   dbCredentials: {

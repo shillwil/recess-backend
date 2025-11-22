@@ -195,4 +195,5 @@ build/
 # Documentation Files
 COMMIT_STRATEGY.md
 
-# drizzle migration files
+# pg dumb files
+qa_backup.dump

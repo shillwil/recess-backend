@@ -7,25 +7,18 @@ import { SignJWT } from 'jose';  // For proxy JWT
 const APP_SECRET = process.env.APP_SECRET;  // Shared with proxy service (optional)
 const DATABASE_PROXY = process.env.DATABASE_PROXY;  // e.g., https://proxy.railway.app (optional)
 
-// Direct DB URL (Railway private TCP—no proxy)
-function getDirectDbUrl(): string {
+// Direct client (for migrations and runtime)
+export function getDirectClient() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL missing—link DB service in Railway');
-  const parsed = new URL(url);
-  // Railway requires SSL for internal connections (self-signed certs)
-  parsed.searchParams.set('sslmode', 'require');
-  return parsed.toString();
-}
-
-// Direct client (for migrations)
-export function getDirectClient() {
+  
   return new Pool({
-    connectionString: getDirectDbUrl(),
+    connectionString: url,
     max: 5,
     ssl: {
       rejectUnauthorized: false  // Accept self-signed certs (Railway uses these)
     }
-  });  // Pool for app if needed
+  });
 }
 export const directDb = directDrizzle(getDirectClient(), { schema });
 

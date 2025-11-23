@@ -32,6 +32,12 @@ export const firebaseAuthMiddleware = async (req: AuthenticatedRequest, res: Res
     next();
   } catch (error) {
     console.error('Error verifying Firebase ID token:', error);
-    res.status(401).json({ message: 'Unauthorized: Invalid token.' });
+    if (error instanceof Error) {
+      console.error('Error details:', error.message);
+    }
+    res.status(401).json({ 
+      message: 'Unauthorized: Invalid token.',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 };

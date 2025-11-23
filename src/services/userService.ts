@@ -10,65 +10,71 @@ import * as admin from 'firebase-admin';
  * @returns The existing or newly created user record from the database.
  */
 export const getOrCreateUser = async (decodedToken: admin.auth.DecodedIdToken) => {
-  // 1. Check if the user already exists in our database
-  const existingUser = await db
-    .select()
-    .from(users)
-    .where(eq(users.firebaseUid, decodedToken.uid))
-    .limit(1);
-
-  if (existingUser.length > 0) {
-    // Update last synced timestamp
-    const updatedUser = await db
-      .update(users)
-      .set({ 
-        lastSyncedAt: new Date(),
-        updatedAt: new Date()
-      })
-      .where(eq(users.firebaseUid, decodedToken.uid))
-      .returning();
-    
-    return updatedUser[0] || existingUser[0];
-  }
-
-  // 2. If the user does not exist, create a new record
+  console.log('[getOrCreateUser] Starting for uid:', decodedToken.uid);
   
-  if (!decodedToken.email) {
-    throw new Error('Cannot create user without an email.');
-  }
-
-  // Generate a simple unique handle from the email.
-  // e.g., 'john.doe@email.com' -> 'john.doe1234'
-  let handle = `${decodedToken.email.split('@')[0]}${Math.floor(1000 + Math.random() * 9000)}`;
-  
-  // Ensure handle is unique
-  let attempts = 0;
-  while (attempts < 5) {
-    const existingHandle = await db
+  try {
+    // 1. Check if the user already exists in our database
+    const existingUser = await db
       .select()
       .from(users)
-      .where(eq(users.handle, handle))
+      .where(eq(users.firebaseUid, decodedToken.uid))
       .limit(1);
+
+    if (existingUser.length > 0) {
+      console.log('[getOrCreateUser] User exists, updating lastSyncedAt');
+      // Update last synced timestamp
+      const updatedUser = await db
+        .update(users)
+        .set({ 
+          lastSyncedAt: new Date(),
+          updatedAt: new Date()
+        })
+        .where(eq(users.firebaseUid, decodedToken.uid))
+        .returning();
+      
+      return updatedUser[0] || existingUser[0];
+    }
+
+    // 2. If the user does not exist, create a new record
+    console.log('[getOrCreateUser] User does not exist, creating new user');
     
-    if (existingHandle.length === 0) break;
+    if (!decodedToken.email) {
+      throw new Error('Cannot create user without an email.');
+    }
+
+    // Generate a simple unique handle from the email.
+    // e.g., 'john.doe@email.com' -> 'john.doe1234'
+    let handle = `${decodedToken.email.split('@')[0]}${Math.floor(1000 + Math.random() * 9000)}`;
     
-    handle = `${decodedToken.email.split('@')[0]}${Math.floor(1000 + Math.random() * 9000)}`;
-    attempts++;
-  }
+    // Ensure handle is unique
+    let attempts = 0;
+    while (attempts < 5) {
+      const existingHandle = await db
+        .select()
+        .from(users)
+        .where(eq(users.handle, handle))
+        .limit(1);
+      
+      if (existingHandle.length === 0) break;
+      
+      handle = `${decodedToken.email.split('@')[0]}${Math.floor(1000 + Math.random() * 9000)}`;
+      attempts++;
+    }
 
-  const newUser = {
-    firebaseUid: decodedToken.uid,
-    email: decodedToken.email,
-    handle: handle,
-    displayName: decodedToken.name || undefined,
-    profilePictureUrl: decodedToken.picture || undefined,
-    lastSyncedAt: new Date(),
-    createdAt: new Date(),
-    updatedAt: new Date()
-  };
+    console.log('[getOrCreateUser] Generated handle:', handle);
 
+    const newUser = {
+      firebaseUid: decodedToken.uid,
+      email: decodedToken.email,
+      handle: handle,
+      displayName: decodedToken.name || undefined,
+      profilePictureUrl: decodedToken.picture || undefined,
+      lastSyncedAt: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
 
-  try {
+    console.log('[getOrCreateUser] Inserting new user with data:', JSON.stringify(newUser, null, 2));
     const insertedUsers = await db.insert(users).values(newUser).returning();
 
     if (insertedUsers.length === 0) {

@@ -4,8 +4,8 @@ import { Pool } from 'pg';
 import * as schema from './db/schema';
 import { SignJWT } from 'jose';  // For proxy JWT
 
-const APP_SECRET = process.env.APP_SECRET!;  // Shared with proxy service
-const DATABASE_PROXY = process.env.DATABASE_PROXY!;  // e.g., https://proxy.railway.app
+const APP_SECRET = process.env.APP_SECRET;  // Shared with proxy service (optional)
+const DATABASE_PROXY = process.env.DATABASE_PROXY;  // e.g., https://proxy.railway.app (optional)
 
 // Direct DB URL (Railway private TCP—no proxy)
 function getDirectDbUrl(): string {
@@ -28,6 +28,10 @@ export const directDb = directDrizzle(getDirectClient(), { schema });
 
 // Proxy-wrapped for runtime queries
 async function proxyQueryExecutor(sql: string, params: unknown[], method: string) {
+  if (!APP_SECRET || !DATABASE_PROXY) {
+    throw new Error('DATABASE_PROXY and APP_SECRET must be set to use proxy mode');
+  }
+  
   const encoder = new TextEncoder();
   const jwt = await new SignJWT({ sql, params, method })
     .setProtectedHeader({ alg: 'HS256' })
@@ -44,4 +48,7 @@ async function proxyQueryExecutor(sql: string, params: unknown[], method: string
   return response.json() as any;  // Drizzle handles typing
 }
 
-export const db = drizzle(proxyQueryExecutor, { schema });  // Use this in your app
+// Use proxy if DATABASE_PROXY is set, otherwise use direct connection
+export const db = DATABASE_PROXY 
+  ? drizzle(proxyQueryExecutor, { schema })  // Proxy mode
+  : directDb;  // Direct mode (fallback)

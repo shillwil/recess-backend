@@ -81,8 +81,14 @@ export const getOrCreateUser = async (decodedToken: admin.auth.DecodedIdToken) =
       throw new Error('Failed to create new user in the database.');
     }
 
+    console.log('[getOrCreateUser] Successfully created user');
     return insertedUsers[0];
   } catch (error) {
+    console.error('[getOrCreateUser] Error:', error);
+    if (error instanceof Error) {
+      console.error('[getOrCreateUser] Error message:', error.message);
+      console.error('[getOrCreateUser] Error stack:', error.stack);
+    }
     throw error;
   }
 };

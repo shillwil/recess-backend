@@ -22,6 +22,9 @@ export function getDirectClient() {
   return new Pool({
     connectionString: getDirectDbUrl(),
     max: 5,
+    ssl: {
+      rejectUnauthorized: false  // Accept self-signed certs (Railway uses these)
+    }
   });  // Pool for app if needed
 }
 export const directDb = directDrizzle(getDirectClient(), { schema });

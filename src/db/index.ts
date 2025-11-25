@@ -22,6 +22,9 @@ export function getDirectClient() {
   return new Pool({
     connectionString: getDirectDbUrl(),
     max: 5,
+    ssl: {
+      rejectUnauthorized: false
+    }
   });  // Pool for app if needed
 }
 export const directDb = directDrizzle(getDirectClient(), { schema });

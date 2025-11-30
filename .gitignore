@@ -65,6 +65,7 @@ web_modules/
 
 # Optional REPL history
 .node_repl_history
+test-auth.html
 
 # Output of 'npm pack'
 *.tgz
@@ -76,6 +77,20 @@ web_modules/
 .env
 .env.*
 !.env.example
+
+# Firebase service account keys
+**/serviceAccountKey*.json
+firebase-adminsdk-*.json
+google-services.json
+GoogleService-Info.plist
+
+# Secrets and credentials
+secrets/
+credentials/
+*.key
+*.pem
+*.p12
+*.pfx
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
@@ -136,3 +151,49 @@ dist
 
 examples/
 .DS_Store
+
+# Development and testing files
+test-auth.html
+src/test-*
+*.local
+
+# Docker volumes and data
+docker-data/
+postgres-data/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Build artifacts
+dist/
+build/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.bak
+*.backup
+
+# Environment-specific files
+.env.local
+.env.development.local
+.env.staging.local
+.env.production.local
+
+# Documentation Files
+COMMIT_STRATEGY.md
+
+# pg dumb files
+qa_backup.dump

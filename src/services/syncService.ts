@@ -1,12 +1,13 @@
+import crypto from 'crypto';
 import { db } from '../db';
-import { 
-  workouts, 
-  workoutExercises, 
-  sets, 
-  syncMetadata, 
-  syncQueue, 
+import {
+  workouts,
+  workoutExercises,
+  sets,
+  syncMetadata,
+  syncQueue,
   syncConflictLog,
-  userDevices 
+  userDevices
 } from '../db/schema';
 import { eq, and, gt, desc, asc } from 'drizzle-orm';
 

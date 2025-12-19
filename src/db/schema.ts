@@ -254,7 +254,7 @@ export const sets = pgTable('sets', {
   // Set data
   setNumber: integer('set_number').notNull(),
   reps: integer('reps').notNull(),
-  weightLbs: numeric('weight_lbs', { precision: 6, scale: 2 }).notNull(),
+  weightLbs: numeric('weight_lbs', { precision: 10, scale: 2 }).notNull(),
   setType: setTypeEnum('set_type').notNull(),
   
   // Additional data

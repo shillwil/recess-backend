@@ -1,0 +1,1 @@
+ALTER TABLE "sets" ALTER COLUMN "weight_lbs" SET DATA TYPE numeric(10, 2);

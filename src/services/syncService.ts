@@ -40,7 +40,8 @@ export interface WorkoutSyncData {
 export interface ExerciseSyncData {
   clientId: string;
   exerciseName: string;
-  muscleGroups: string[];
+  primaryMuscles: string[];
+  muscleGroups?: string[]; // Deprecated: for backwards compatibility with older iOS clients
   sets: SetSyncData[];
   updatedAt: string; // ISO string
 }
@@ -51,7 +52,8 @@ export interface SetSyncData {
   weight: number; // in lbs
   setType: 'warmup' | 'working';
   exerciseTypeName: string;
-  exerciseTypeMuscleGroups: string[];
+  exerciseTypePrimaryMuscles: string[];
+  exerciseTypeMuscleGroups?: string[]; // Deprecated: for backwards compatibility with older iOS clients
   updatedAt: string; // ISO string
 }
 
@@ -77,6 +79,8 @@ export interface ConflictData {
   serverData: any;
   resolution: 'client_wins' | 'server_wins' | 'merged';
 }
+
+import { normalizeExerciseData } from './syncHelpers';
 
 export class SyncService {
   private static readonly CONFLICT_THRESHOLD_MS = 5000; // 5 seconds
@@ -217,15 +221,16 @@ export class SyncService {
     // Insert exercises and sets
     for (const [exerciseIndex, exerciseData] of workoutData.exercises.entries()) {
       const exerciseId = crypto.randomUUID();
-      
+      const normalized = normalizeExerciseData(exerciseData);
+
       await db.insert(workoutExercises).values({
         id: exerciseId,
         workoutId,
         clientId: exerciseData.clientId,
-        exerciseId: await this.getOrCreateExerciseId(exerciseData.exerciseName, exerciseData.muscleGroups),
+        exerciseId: await this.getOrCreateExerciseId(exerciseData.exerciseName, normalized.normalizedPrimaryMuscles),
         orderIndex: exerciseIndex,
         exerciseName: exerciseData.exerciseName,
-        muscleGroups: exerciseData.muscleGroups,
+        primaryMuscles: normalized.normalizedPrimaryMuscles,
         clientUpdatedAt: new Date(exerciseData.updatedAt),
         lastSyncedAt: new Date(),
       });
@@ -323,7 +328,7 @@ export class SyncService {
           workoutExercises.set(exerciseId, {
             clientId: row.workout_exercises.clientId || exerciseId,
             exerciseName: row.workout_exercises.exerciseName,
-            muscleGroups: row.workout_exercises.muscleGroups,
+            primaryMuscles: row.workout_exercises.primaryMuscles,
             sets: [],
             updatedAt: row.workout_exercises.updatedAt.toISOString(),
           });
@@ -338,7 +343,7 @@ export class SyncService {
             weight: parseFloat(row.sets.weightLbs),
             setType: row.sets.setType as 'warmup' | 'working',
             exerciseTypeName: row.workout_exercises.exerciseName,
-            exerciseTypeMuscleGroups: row.workout_exercises.muscleGroups,
+            exerciseTypePrimaryMuscles: row.workout_exercises.primaryMuscles,
             updatedAt: row.sets.updatedAt.toISOString(),
           });
         }
@@ -356,28 +361,28 @@ export class SyncService {
     return Array.from(workoutMap.values());
   }
   
-  private static async getOrCreateExerciseId(name: string, muscleGroups: string[]): Promise<string> {
+  private static async getOrCreateExerciseId(name: string, primaryMuscles: string[]): Promise<string> {
     const { exercises } = await import('../db/schema');
-    
+
     // Try to find existing exercise by name
     const existingExercise = await db.select()
       .from(exercises)
       .where(eq(exercises.name, name))
       .limit(1);
-    
+
     if (existingExercise.length > 0) {
       return existingExercise[0].id;
     }
-    
+
     // Create new exercise
     const exerciseId = crypto.randomUUID();
     await db.insert(exercises).values({
       id: exerciseId,
       name,
-      muscleGroups,
+      primaryMuscles,
       isCustom: true, // Mark as custom since it came from client
     });
-    
+
     return exerciseId;
   }
   

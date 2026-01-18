@@ -34,6 +34,11 @@ export const syncOperationEnum = pgEnum('sync_operation', ['create', 'update', '
 export const syncStatusEnum = pgEnum('sync_status', ['pending', 'syncing', 'completed', 'failed']);
 export const conflictResolutionEnum = pgEnum('conflict_resolution', ['client_wins', 'server_wins', 'merged']);
 
+// Exercise classification enums
+export const difficultyLevelEnum = pgEnum('difficulty_level', ['beginner', 'intermediate', 'advanced']);
+export const movementPatternEnum = pgEnum('movement_pattern', ['push', 'pull', 'hinge', 'squat', 'lunge', 'carry', 'rotation', 'core']);
+export const exerciseTypeEnum = pgEnum('exercise_type', ['compound', 'isolation', 'cardio', 'plyometric', 'stretch']);
+
 // Users table - Core user data with sync tracking
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -81,13 +86,31 @@ export const users = pgTable('users', {
 export const exercises = pgTable('exercises', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: varchar('name', { length: 100 }).notNull().unique(),
-  muscleGroups: jsonb('muscle_groups').$type<string[]>().notNull(),
+
+  // Muscle targeting
+  primaryMuscles: jsonb('primary_muscles').$type<string[]>().notNull(),
+  secondaryMuscles: jsonb('secondary_muscles').$type<string[]>().default([]),
+
+  // Classification
   equipment: varchar('equipment', { length: 50 }),
+  difficulty: difficultyLevelEnum('difficulty'),
+  movementPattern: movementPatternEnum('movement_pattern'),
+  exerciseType: exerciseTypeEnum('exercise_type'),
+
+  // Media
   instructions: text('instructions'),
   videoUrl: text('video_url'),
+  thumbnailUrl: text('thumbnail_url'),
+
+  // Analytics
+  totalTimesUsed: integer('total_times_used').default(0),
+  lastUsedAt: timestamp('last_used_at'),
+  popularityScore: numeric('popularity_score', { precision: 10, scale: 2 }).default('0'),
+
+  // Ownership
   isCustom: boolean('is_custom').default(false),
   createdBy: uuid('created_by').references(() => users.id),
-  
+
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull()
 }, (table) => ({
@@ -229,7 +252,7 @@ export const workoutExercises = pgTable('workout_exercises', {
   
   // Exercise metadata
   exerciseName: varchar('exercise_name', { length: 100 }).notNull(), // Denormalized for performance
-  muscleGroups: jsonb('muscle_groups').$type<string[]>().notNull(), // Denormalized for performance
+  primaryMuscles: jsonb('primary_muscles').$type<string[]>().notNull(), // Denormalized for performance
   
   // Sync tracking
   lastSyncedAt: timestamp('last_synced_at'),

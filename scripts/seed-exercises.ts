@@ -5,10 +5,8 @@ import { exercises } from '../src/db/schema';
 import { exerciseSeedData, buildVideoUrl } from '../seed-data/exercises';
 import { sql } from 'drizzle-orm';
 
-// Load env for local dev only
-if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
-  config({ path: '.env.development' });
-}
+// Load env
+config({ path: '.env' });
 
 function getDirectDbUrl(): string {
   const url = process.env.DATABASE_URL;

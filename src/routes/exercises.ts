@@ -12,8 +12,36 @@ import { ExerciseListQuery, ExerciseSortOption } from '../models/exercise.types'
 
 const router = Router();
 
+const isDevelopment = process.env.NODE_ENV === 'development';
+
 // Valid sort options
 const VALID_SORTS: ExerciseSortOption[] = ['name', 'popularity', 'recently_used', 'difficulty'];
+
+// UUID validation regex
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Validates UUID format
+ */
+function isValidUuid(id: string): boolean {
+  return UUID_REGEX.test(id);
+}
+
+/**
+ * Creates an error response object, only including error details in development
+ */
+function createErrorResponse(message: string, error: unknown) {
+  const response: { success: false; message: string; error?: string } = {
+    success: false,
+    message
+  };
+
+  if (isDevelopment && error instanceof Error) {
+    response.error = error.message;
+  }
+
+  return response;
+}
 
 /**
  * GET /api/exercises
@@ -83,11 +111,7 @@ router.get('/', optionalAuthMiddleware, async (req: AuthenticatedRequest, res: R
     });
   } catch (error) {
     console.error('Error in GET /api/exercises:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch exercises',
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
+    res.status(500).json(createErrorResponse('Failed to fetch exercises', error));
   }
 });
 
@@ -106,11 +130,7 @@ router.get('/filters', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Error in GET /api/exercises/filters:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch filter metadata',
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
+    res.status(500).json(createErrorResponse('Failed to fetch filter metadata', error));
   }
 });
 
@@ -123,9 +143,7 @@ router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    // Validate UUID format
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(id)) {
+    if (!isValidUuid(id)) {
       res.status(400).json({
         success: false,
         message: 'Invalid exercise ID format'
@@ -149,11 +167,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Error in GET /api/exercises/:id:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch exercise',
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
+    res.status(500).json(createErrorResponse('Failed to fetch exercise', error));
   }
 });
 
@@ -169,9 +183,7 @@ router.post(
     try {
       const { id } = req.params;
 
-      // Validate UUID format
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (!uuidRegex.test(id)) {
+      if (!isValidUuid(id)) {
         res.status(400).json({
           success: false,
           message: 'Invalid exercise ID format'
@@ -188,11 +200,7 @@ router.post(
       });
     } catch (error) {
       console.error('Error in POST /api/exercises/:id/record-usage:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to record exercise usage',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      res.status(500).json(createErrorResponse('Failed to record exercise usage', error));
     }
   }
 );

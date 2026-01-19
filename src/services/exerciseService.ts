@@ -145,9 +145,10 @@ export async function getExercises(
   let nextCursor: string | null = null;
   if (hasMore && exerciseList.length > 0) {
     const lastExercise = exerciseList[exerciseList.length - 1];
+    const sortValue = await getSortValueAsync(lastExercise, sort, userId);
     nextCursor = encodeCursor({
       id: lastExercise.id,
-      sortValue: getSortValue(lastExercise, sort),
+      sortValue,
       sortField: sort
     });
   }
@@ -448,10 +449,11 @@ function applySorting(
   }
 }
 
-function getSortValue(
+async function getSortValueAsync(
   exercise: { id: string; name: string; popularityScore: any; difficulty: any },
-  sort: ExerciseSortOption
-): string | number | null {
+  sort: ExerciseSortOption,
+  userId?: string
+): Promise<string | number | null> {
   switch (sort) {
     case 'name':
       return exercise.name;
@@ -460,9 +462,21 @@ function getSortValue(
     case 'difficulty':
       return exercise.difficulty;
     case 'recently_used':
-      // For recently_used, we'll need to store the timestamp in the cursor
-      // This is handled specially in the query
-      return new Date().toISOString();
+      // Fetch the actual lastUsedAt from user_exercise_history
+      if (!userId) return null;
+      const history = await db
+        .select({ lastUsedAt: userExerciseHistory.lastUsedAt })
+        .from(userExerciseHistory)
+        .where(
+          and(
+            eq(userExerciseHistory.userId, userId),
+            eq(userExerciseHistory.exerciseId, exercise.id)
+          )
+        )
+        .limit(1);
+      return history.length > 0
+        ? history[0].lastUsedAt.toISOString()
+        : '1970-01-01T00:00:00.000Z';
     default:
       return exercise.name;
   }

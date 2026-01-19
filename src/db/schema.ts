@@ -114,7 +114,37 @@ export const exercises = pgTable('exercises', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull()
 }, (table) => ({
-  nameIdx: index('exercises_name_idx').on(table.name)
+  nameIdx: index('exercises_name_idx').on(table.name),
+  difficultyIdx: index('exercises_difficulty_idx').on(table.difficulty),
+  movementPatternIdx: index('exercises_movement_pattern_idx').on(table.movementPattern),
+  exerciseTypeIdx: index('exercises_exercise_type_idx').on(table.exerciseType),
+  popularityScoreIdx: index('exercises_popularity_score_idx').on(table.popularityScore),
+  isCustomIdx: index('exercises_is_custom_idx').on(table.isCustom)
+}));
+
+// Exercise aliases - for fuzzy search with gym slang and abbreviations
+export const exerciseAliases = pgTable('exercise_aliases', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  exerciseId: uuid('exercise_id').references(() => exercises.id, { onDelete: 'cascade' }).notNull(),
+  alias: varchar('alias', { length: 100 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, (table) => ({
+  exerciseAliasIdx: uniqueIndex('exercise_aliases_exercise_alias_idx').on(table.exerciseId, table.alias),
+  aliasIdx: index('exercise_aliases_alias_idx').on(table.alias)
+}));
+
+// User exercise history - tracks which exercises each user has used for "recently used" sorting
+export const userExerciseHistory = pgTable('user_exercise_history', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  exerciseId: uuid('exercise_id').references(() => exercises.id, { onDelete: 'cascade' }).notNull(),
+  lastUsedAt: timestamp('last_used_at').defaultNow().notNull(),
+  useCount: integer('use_count').default(1).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
+}, (table) => ({
+  userExerciseIdx: uniqueIndex('user_exercise_history_user_exercise_idx').on(table.userId, table.exerciseId),
+  userLastUsedIdx: index('user_exercise_history_user_last_used_idx').on(table.userId, table.lastUsedAt)
 }));
 
 // Workout templates - For saved/AI-generated workout plans
@@ -422,13 +452,34 @@ export const usersRelations = relations(users, ({ many }) => ({
   following: many(userFollows, { relationName: 'following' }),
   competitions: many(competitions),
   competitionParticipations: many(competitionParticipants),
-  templateLikes: many(templateLikes)
+  templateLikes: many(templateLikes),
+  exerciseHistory: many(userExerciseHistory)
 }));
 
 export const exercisesRelations = relations(exercises, ({ many }) => ({
   templateExercises: many(templateExercises),
   workoutExercises: many(workoutExercises),
-  personalRecords: many(personalRecords)
+  personalRecords: many(personalRecords),
+  aliases: many(exerciseAliases),
+  userHistory: many(userExerciseHistory)
+}));
+
+export const exerciseAliasesRelations = relations(exerciseAliases, ({ one }) => ({
+  exercise: one(exercises, {
+    fields: [exerciseAliases.exerciseId],
+    references: [exercises.id]
+  })
+}));
+
+export const userExerciseHistoryRelations = relations(userExerciseHistory, ({ one }) => ({
+  user: one(users, {
+    fields: [userExerciseHistory.userId],
+    references: [users.id]
+  }),
+  exercise: one(exercises, {
+    fields: [userExerciseHistory.exerciseId],
+    references: [exercises.id]
+  })
 }));
 
 export const workoutTemplatesRelations = relations(workoutTemplates, ({ one, many }) => ({

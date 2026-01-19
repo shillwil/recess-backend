@@ -81,6 +81,7 @@ export interface ConflictData {
 }
 
 import { normalizeExerciseData } from './syncHelpers';
+import { recordExerciseUsage } from './exerciseService';
 
 export class SyncService {
   private static readonly CONFLICT_THRESHOLD_MS = 5000; // 5 seconds
@@ -222,18 +223,22 @@ export class SyncService {
     for (const [exerciseIndex, exerciseData] of workoutData.exercises.entries()) {
       const exerciseId = crypto.randomUUID();
       const normalized = normalizeExerciseData(exerciseData);
+      const libraryExerciseId = await this.getOrCreateExerciseId(exerciseData.exerciseName, normalized.normalizedPrimaryMuscles);
 
       await db.insert(workoutExercises).values({
         id: exerciseId,
         workoutId,
         clientId: exerciseData.clientId,
-        exerciseId: await this.getOrCreateExerciseId(exerciseData.exerciseName, normalized.normalizedPrimaryMuscles),
+        exerciseId: libraryExerciseId,
         orderIndex: exerciseIndex,
         exerciseName: exerciseData.exerciseName,
         primaryMuscles: normalized.normalizedPrimaryMuscles,
         clientUpdatedAt: new Date(exerciseData.updatedAt),
         lastSyncedAt: new Date(),
       });
+
+      // Record exercise usage for "recently used" sorting
+      await recordExerciseUsage(userId, libraryExerciseId);
       
       // Insert sets
       for (const [setIndex, setData] of exerciseData.sets.entries()) {

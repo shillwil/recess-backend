@@ -5,6 +5,7 @@ import { config } from './config';
 import { AuthenticatedRequest, firebaseAuthMiddleware } from './middleware/auth';
 import { getOrCreateUser, updateUserProfile } from './services/userService';
 import { SyncService, SyncPayload } from './services/syncService';
+import exerciseRoutes from './routes/exercises';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -87,6 +88,9 @@ app.put('/api/me', firebaseAuthMiddleware, async (req: AuthenticatedRequest, res
     });
   }
 });
+
+// Exercise API routes
+app.use('/api/exercises', exerciseRoutes);
 
 // Sync endpoint - sync user's workout data
 app.post('/api/sync', firebaseAuthMiddleware, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {

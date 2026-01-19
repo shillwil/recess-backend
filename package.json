@@ -16,7 +16,8 @@
   "start:staging": "npm run db:migrate && cross-env NODE_ENV=staging node dist/index.js",
   "start:prod": "npm run db:migrate && cross-env NODE_ENV=production node dist/index.js",
   "db:generate": "drizzle-kit generate",
-  "db:migrate": "drizzle-kit migrate"
+  "db:migrate": "drizzle-kit migrate",
+  "db:seed": "npx tsx scripts/seed-exercises.ts"
 },
   "repository": {
     "type": "git",

@@ -9,13 +9,10 @@
 
 import { config } from 'dotenv';
 
-// Load environment variables
+// Load environment variables BEFORE any other imports
+// (dynamic imports used below to avoid ES module hoisting issues)
 const env = process.env.NODE_ENV || 'development';
 config({ path: `./.env.${env}` });
-
-import { db } from '../src/db';
-import { exercises, exerciseAliases } from '../src/db/schema';
-import { eq } from 'drizzle-orm';
 
 // Common exercise aliases mapping
 // Format: { "Official Exercise Name": ["alias1", "alias2", ...] }
@@ -397,6 +394,11 @@ const EXERCISE_ALIASES: Record<string, string[]> = {
 };
 
 async function seedExerciseAliases() {
+  // Use dynamic imports to ensure dotenv has loaded first
+  const { db } = await import('../src/db');
+  const { exercises, exerciseAliases } = await import('../src/db/schema');
+  const { eq } = await import('drizzle-orm');
+
   console.log('Starting exercise alias seeding...\n');
 
   let totalAliasesAdded = 0;

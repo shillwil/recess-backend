@@ -129,7 +129,7 @@ export const exerciseAliases = pgTable('exercise_aliases', {
   alias: varchar('alias', { length: 100 }).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, (table) => ({
-  exerciseIdIdx: index('exercise_aliases_exercise_id_idx').on(table.exerciseId),
+  exerciseAliasIdx: uniqueIndex('exercise_aliases_exercise_alias_idx').on(table.exerciseId, table.alias),
   aliasIdx: index('exercise_aliases_alias_idx').on(table.alias)
 }));
 

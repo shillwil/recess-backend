@@ -243,6 +243,7 @@ router.put('/:id', templateWriteLimiter, async (req: AuthenticatedRequest, res: 
 /**
  * DELETE /api/templates/:id
  * Delete template (cascades to exercises)
+ * Returns 409 Conflict if template is used in any program
  */
 router.delete('/:id', templateWriteLimiter, async (req: AuthenticatedRequest, res: Response) => {
   const correlationId = getCorrelationId(req);
@@ -280,6 +281,13 @@ router.delete('/:id', templateWriteLimiter, async (req: AuthenticatedRequest, re
     });
   } catch (error) {
     logError('DELETE /api/templates/:id', error, correlationId, { templateId: req.params.id });
+
+    // Handle template-in-use error
+    if (error instanceof Error && error.message.includes('used in one or more programs')) {
+      sendErrorResponse(res, 409, error.message, undefined, correlationId);
+      return;
+    }
+
     sendErrorResponse(res, 500, 'Failed to delete template', error, correlationId);
   }
 });

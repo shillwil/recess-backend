@@ -392,6 +392,7 @@ export async function updateTemplate(
 
 /**
  * Delete a template (exercises cascade automatically)
+ * Throws error if template is used in any program
  */
 export async function deleteTemplate(
   templateId: string,
@@ -401,6 +402,13 @@ export async function deleteTemplate(
   const existing = await verifyTemplateOwnership(templateId, userId);
   if (!existing) {
     return false;
+  }
+
+  // Check if template is used in any programs
+  const { isTemplateUsedInPrograms } = await import('./programService');
+  const isUsed = await isTemplateUsedInPrograms(templateId);
+  if (isUsed) {
+    throw new Error('Cannot delete template: it is used in one or more programs');
   }
 
   // Delete the template (cascade will delete exercises)

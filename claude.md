@@ -271,6 +271,7 @@ When making architectural decisions, keep these planned features in mind:
 - Make breaking API changes without versioning
 - Ignore TypeScript errors
 - Skip error handling on external service calls
+- Add "Co-Authored-By" lines to git commits
 
 ## Troubleshooting
 

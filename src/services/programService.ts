@@ -108,9 +108,15 @@ export async function verifyProgramOwnership(
 
 /**
  * Validates that all template IDs exist and belong to the user
+ * Returns array of missing/unauthorized template IDs
  */
 async function validateTemplateIds(templateIds: string[], userId: string): Promise<string[]> {
   const uniqueIds = [...new Set(templateIds)];
+
+  // Early return for empty array - nothing to validate
+  if (uniqueIds.length === 0) {
+    return [];
+  }
 
   const existingTemplates = await db
     .select({ id: workoutTemplates.id })
@@ -411,6 +417,25 @@ export async function updateProgram(
     return null;
   }
 
+  // If reducing daysPerWeek, check for orphaned workouts
+  if (updates.daysPerWeek !== undefined && updates.daysPerWeek < existing.daysPerWeek) {
+    const orphanedWorkouts = await db
+      .select({ id: programWeeks.id, dayNumber: programWeeks.dayNumber })
+      .from(programWeeks)
+      .where(and(
+        eq(programWeeks.programId, programId),
+        sql`${programWeeks.dayNumber} >= ${updates.daysPerWeek}`
+      ))
+      .limit(1);
+
+    if (orphanedWorkouts.length > 0) {
+      throw new Error(
+        `Cannot reduce daysPerWeek to ${updates.daysPerWeek}: workouts exist with dayNumber >= ${updates.daysPerWeek}. ` +
+        `Remove or reassign those workouts first.`
+      );
+    }
+  }
+
   const updateData: Partial<typeof workoutPrograms.$inferInsert> = {
     updatedAt: new Date()
   };
@@ -423,6 +448,10 @@ export async function updateProgram(
   }
   if (updates.daysPerWeek !== undefined) {
     updateData.daysPerWeek = updates.daysPerWeek;
+    // Reset currentDayIndex if it would become invalid
+    if (existing.currentDayIndex >= updates.daysPerWeek) {
+      updateData.currentDayIndex = 0;
+    }
   }
   if (updates.durationWeeks !== undefined) {
     updateData.durationWeeks = updates.durationWeeks;
@@ -506,6 +535,13 @@ export async function updateProgramWorkouts(
 
 /**
  * Activate a program (deactivates all others for the user)
+ *
+ * Note: Uses application-level enforcement via transaction rather than a database
+ * constraint. Concurrent requests could theoretically both succeed, but this is
+ * acceptable for this use case since:
+ * 1. Users rarely activate programs simultaneously
+ * 2. The worst case is two active programs briefly, resolved on next activation
+ * 3. A partial unique index would add complexity without meaningful benefit
  */
 export async function activateProgram(
   programId: string,

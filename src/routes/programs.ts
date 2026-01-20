@@ -272,6 +272,13 @@ router.put('/:id', programWriteLimiter, async (req: AuthenticatedRequest, res: R
     });
   } catch (error) {
     logError('PUT /api/programs/:id', error, correlationId, { programId: req.params.id });
+
+    // Handle daysPerWeek reduction error (would orphan workouts)
+    if (error instanceof Error && error.message.includes('Cannot reduce daysPerWeek')) {
+      sendErrorResponse(res, 400, error.message, undefined, correlationId);
+      return;
+    }
+
     sendErrorResponse(res, 500, 'Failed to update program', error, correlationId);
   }
 });

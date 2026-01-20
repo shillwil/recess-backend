@@ -515,3 +515,479 @@ export function validateSyncPayload(payload: unknown): SyncPayloadValidationResu
     errors
   };
 }
+
+// ============ Template Validation ============
+
+/**
+ * Template size limits
+ */
+export const TEMPLATE_LIMITS = {
+  MAX_NAME_LENGTH: 200,
+  MAX_DESCRIPTION_LENGTH: 1000,
+  MAX_EXERCISES_PER_TEMPLATE: 30,
+  MAX_WORKING_SETS: 20,
+  MAX_WARMUP_SETS: 10,
+  MAX_REST_SECONDS: 600,
+  MAX_NOTES_LENGTH: 500,
+  MAX_TARGET_REPS_LENGTH: 20,
+} as const;
+
+// UUID validation regex
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Validates UUID format
+ */
+export function isValidUuid(id: string): boolean {
+  return UUID_REGEX.test(id);
+}
+
+/**
+ * Template list query validation result
+ */
+export interface TemplateQueryValidationResult extends ValidationResult {
+  sanitized?: {
+    cursor?: string;
+    limit?: number;
+    sort?: 'name' | 'createdAt' | 'updatedAt';
+    order?: 'asc' | 'desc';
+  };
+}
+
+/**
+ * Validates template list query parameters
+ */
+export function validateTemplateListQuery(query: Record<string, unknown>): TemplateQueryValidationResult {
+  const errors: string[] = [];
+  const sanitized: TemplateQueryValidationResult['sanitized'] = {};
+
+  // Cursor validation
+  if (query.cursor !== undefined) {
+    if (typeof query.cursor !== 'string') {
+      errors.push('cursor must be a string');
+    } else {
+      sanitized.cursor = query.cursor;
+    }
+  }
+
+  // Limit validation with bounds checking
+  if (query.limit !== undefined) {
+    const limitStr = String(query.limit);
+    const limit = parseInt(limitStr, 10);
+    if (isNaN(limit)) {
+      errors.push('limit must be a valid integer');
+    } else if (limit < 1) {
+      errors.push('limit must be at least 1');
+    } else if (limit > 100) {
+      errors.push('limit cannot exceed 100');
+    } else {
+      sanitized.limit = limit;
+    }
+  }
+
+  // Sort validation
+  const VALID_TEMPLATE_SORTS = ['name', 'createdAt', 'updatedAt'] as const;
+  if (query.sort !== undefined) {
+    if (typeof query.sort !== 'string') {
+      errors.push('sort must be a string');
+    } else if (!VALID_TEMPLATE_SORTS.includes(query.sort as typeof VALID_TEMPLATE_SORTS[number])) {
+      errors.push(`Invalid sort option: "${query.sort}". Valid options: ${VALID_TEMPLATE_SORTS.join(', ')}`);
+    } else {
+      sanitized.sort = query.sort as typeof VALID_TEMPLATE_SORTS[number];
+    }
+  }
+
+  // Order validation
+  if (query.order !== undefined) {
+    if (typeof query.order !== 'string') {
+      errors.push('order must be a string');
+    } else if (!['asc', 'desc'].includes(query.order)) {
+      errors.push('order must be "asc" or "desc"');
+    } else {
+      sanitized.order = query.order as 'asc' | 'desc';
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    sanitized: errors.length === 0 ? sanitized : undefined
+  };
+}
+
+/**
+ * Create template validation result
+ */
+export interface CreateTemplateValidationResult extends ValidationResult {
+  sanitized?: {
+    name: string;
+    description?: string;
+    exercises: Array<{
+      exerciseId: string;
+      orderIndex: number;
+      workingSets: number;
+      warmupSets?: number;
+      targetReps?: string;
+      restSeconds?: number;
+      notes?: string;
+    }>;
+  };
+}
+
+/**
+ * Validates create template input
+ */
+export function validateCreateTemplate(data: unknown): CreateTemplateValidationResult {
+  const errors: string[] = [];
+
+  if (typeof data !== 'object' || data === null) {
+    return { valid: false, errors: ['Request body must be an object'] };
+  }
+
+  const input = data as Record<string, unknown>;
+
+  // Validate name (required)
+  if (!input.name || typeof input.name !== 'string') {
+    errors.push('name is required and must be a string');
+  } else {
+    const trimmed = input.name.trim();
+    if (trimmed.length === 0) {
+      errors.push('name cannot be empty');
+    } else if (trimmed.length > TEMPLATE_LIMITS.MAX_NAME_LENGTH) {
+      errors.push(`name cannot exceed ${TEMPLATE_LIMITS.MAX_NAME_LENGTH} characters`);
+    }
+  }
+
+  // Validate description (optional)
+  if (input.description !== undefined && input.description !== null) {
+    if (typeof input.description !== 'string') {
+      errors.push('description must be a string');
+    } else if (input.description.length > TEMPLATE_LIMITS.MAX_DESCRIPTION_LENGTH) {
+      errors.push(`description cannot exceed ${TEMPLATE_LIMITS.MAX_DESCRIPTION_LENGTH} characters`);
+    }
+  }
+
+  // Validate exercises array (required)
+  if (!Array.isArray(input.exercises)) {
+    errors.push('exercises must be an array');
+    return { valid: false, errors };
+  }
+
+  if (input.exercises.length === 0) {
+    errors.push('exercises array cannot be empty');
+  } else if (input.exercises.length > TEMPLATE_LIMITS.MAX_EXERCISES_PER_TEMPLATE) {
+    errors.push(`exercises array cannot exceed ${TEMPLATE_LIMITS.MAX_EXERCISES_PER_TEMPLATE} items`);
+  }
+
+  // Validate each exercise
+  const exerciseErrors = validateTemplateExercisesArray(input.exercises);
+  errors.push(...exerciseErrors);
+
+  if (errors.length > 0) {
+    return { valid: false, errors };
+  }
+
+  // Build sanitized output
+  const sanitized: CreateTemplateValidationResult['sanitized'] = {
+    name: (input.name as string).trim(),
+    exercises: (input.exercises as Array<Record<string, unknown>>).map((e, i) => ({
+      exerciseId: e.exerciseId as string,
+      orderIndex: typeof e.orderIndex === 'number' ? e.orderIndex : i,
+      workingSets: e.workingSets as number,
+      warmupSets: typeof e.warmupSets === 'number' ? e.warmupSets : undefined,
+      targetReps: typeof e.targetReps === 'string' ? e.targetReps.trim() : undefined,
+      restSeconds: typeof e.restSeconds === 'number' ? e.restSeconds : undefined,
+      notes: typeof e.notes === 'string' ? e.notes.trim() : undefined,
+    }))
+  };
+
+  if (typeof input.description === 'string' && input.description.trim().length > 0) {
+    sanitized.description = input.description.trim();
+  }
+
+  return { valid: true, errors: [], sanitized };
+}
+
+/**
+ * Validates an array of template exercises
+ */
+function validateTemplateExercisesArray(exercises: unknown[]): string[] {
+  const errors: string[] = [];
+  const seenOrderIndices = new Set<number>();
+
+  for (let i = 0; i < exercises.length; i++) {
+    const exercise = exercises[i] as Record<string, unknown>;
+
+    if (typeof exercise !== 'object' || exercise === null) {
+      errors.push(`exercises[${i}] must be an object`);
+      continue;
+    }
+
+    // Validate exerciseId (required UUID)
+    if (!exercise.exerciseId || typeof exercise.exerciseId !== 'string') {
+      errors.push(`exercises[${i}].exerciseId is required and must be a string`);
+    } else if (!isValidUuid(exercise.exerciseId)) {
+      errors.push(`exercises[${i}].exerciseId must be a valid UUID`);
+    }
+
+    // Validate orderIndex (optional, defaults to array index)
+    if (exercise.orderIndex !== undefined) {
+      if (typeof exercise.orderIndex !== 'number' || !Number.isInteger(exercise.orderIndex)) {
+        errors.push(`exercises[${i}].orderIndex must be an integer`);
+      } else if (exercise.orderIndex < 0) {
+        errors.push(`exercises[${i}].orderIndex must be >= 0`);
+      } else {
+        if (seenOrderIndices.has(exercise.orderIndex)) {
+          errors.push(`exercises[${i}].orderIndex ${exercise.orderIndex} is duplicated`);
+        }
+        seenOrderIndices.add(exercise.orderIndex);
+      }
+    }
+
+    // Validate workingSets (required)
+    if (exercise.workingSets === undefined || typeof exercise.workingSets !== 'number') {
+      errors.push(`exercises[${i}].workingSets is required and must be a number`);
+    } else if (!Number.isInteger(exercise.workingSets) || exercise.workingSets < 1) {
+      errors.push(`exercises[${i}].workingSets must be an integer >= 1`);
+    } else if (exercise.workingSets > TEMPLATE_LIMITS.MAX_WORKING_SETS) {
+      errors.push(`exercises[${i}].workingSets cannot exceed ${TEMPLATE_LIMITS.MAX_WORKING_SETS}`);
+    }
+
+    // Validate warmupSets (optional)
+    if (exercise.warmupSets !== undefined) {
+      if (typeof exercise.warmupSets !== 'number' || !Number.isInteger(exercise.warmupSets)) {
+        errors.push(`exercises[${i}].warmupSets must be an integer`);
+      } else if (exercise.warmupSets < 0) {
+        errors.push(`exercises[${i}].warmupSets must be >= 0`);
+      } else if (exercise.warmupSets > TEMPLATE_LIMITS.MAX_WARMUP_SETS) {
+        errors.push(`exercises[${i}].warmupSets cannot exceed ${TEMPLATE_LIMITS.MAX_WARMUP_SETS}`);
+      }
+    }
+
+    // Validate targetReps (optional)
+    if (exercise.targetReps !== undefined && exercise.targetReps !== null) {
+      if (typeof exercise.targetReps !== 'string') {
+        errors.push(`exercises[${i}].targetReps must be a string`);
+      } else if (exercise.targetReps.length > TEMPLATE_LIMITS.MAX_TARGET_REPS_LENGTH) {
+        errors.push(`exercises[${i}].targetReps cannot exceed ${TEMPLATE_LIMITS.MAX_TARGET_REPS_LENGTH} characters`);
+      }
+    }
+
+    // Validate restSeconds (optional)
+    if (exercise.restSeconds !== undefined && exercise.restSeconds !== null) {
+      if (typeof exercise.restSeconds !== 'number' || !Number.isInteger(exercise.restSeconds)) {
+        errors.push(`exercises[${i}].restSeconds must be an integer`);
+      } else if (exercise.restSeconds < 0) {
+        errors.push(`exercises[${i}].restSeconds must be >= 0`);
+      } else if (exercise.restSeconds > TEMPLATE_LIMITS.MAX_REST_SECONDS) {
+        errors.push(`exercises[${i}].restSeconds cannot exceed ${TEMPLATE_LIMITS.MAX_REST_SECONDS}`);
+      }
+    }
+
+    // Validate notes (optional)
+    if (exercise.notes !== undefined && exercise.notes !== null) {
+      if (typeof exercise.notes !== 'string') {
+        errors.push(`exercises[${i}].notes must be a string`);
+      } else if (exercise.notes.length > TEMPLATE_LIMITS.MAX_NOTES_LENGTH) {
+        errors.push(`exercises[${i}].notes cannot exceed ${TEMPLATE_LIMITS.MAX_NOTES_LENGTH} characters`);
+      }
+    }
+
+    // Stop early if too many errors
+    if (errors.length > 20) {
+      errors.push('Too many validation errors. Stopping validation.');
+      break;
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Update template validation result
+ */
+export interface UpdateTemplateValidationResult extends ValidationResult {
+  sanitized?: {
+    name?: string;
+    description?: string;
+  };
+}
+
+/**
+ * Validates update template input
+ */
+export function validateUpdateTemplate(data: unknown): UpdateTemplateValidationResult {
+  const errors: string[] = [];
+  const sanitized: UpdateTemplateValidationResult['sanitized'] = {};
+
+  if (typeof data !== 'object' || data === null) {
+    return { valid: false, errors: ['Request body must be an object'] };
+  }
+
+  const input = data as Record<string, unknown>;
+
+  // Check for unknown fields
+  const allowedFields = ['name', 'description'];
+  const inputFields = Object.keys(input);
+  const unknownFields = inputFields.filter(f => !allowedFields.includes(f));
+
+  if (unknownFields.length > 0) {
+    errors.push(`Unknown fields: ${unknownFields.join(', ')}. Allowed fields: ${allowedFields.join(', ')}`);
+  }
+
+  // Validate name (optional)
+  if (input.name !== undefined) {
+    if (typeof input.name !== 'string') {
+      errors.push('name must be a string');
+    } else {
+      const trimmed = input.name.trim();
+      if (trimmed.length === 0) {
+        errors.push('name cannot be empty');
+      } else if (trimmed.length > TEMPLATE_LIMITS.MAX_NAME_LENGTH) {
+        errors.push(`name cannot exceed ${TEMPLATE_LIMITS.MAX_NAME_LENGTH} characters`);
+      } else {
+        sanitized.name = trimmed;
+      }
+    }
+  }
+
+  // Validate description (optional, can be set to empty string to clear)
+  if (input.description !== undefined) {
+    if (input.description === null) {
+      sanitized.description = '';
+    } else if (typeof input.description !== 'string') {
+      errors.push('description must be a string or null');
+    } else if (input.description.length > TEMPLATE_LIMITS.MAX_DESCRIPTION_LENGTH) {
+      errors.push(`description cannot exceed ${TEMPLATE_LIMITS.MAX_DESCRIPTION_LENGTH} characters`);
+    } else {
+      sanitized.description = input.description.trim();
+    }
+  }
+
+  if (errors.length > 0) {
+    return { valid: false, errors };
+  }
+
+  // Check if there's anything to update
+  if (Object.keys(sanitized).length === 0) {
+    return { valid: false, errors: ['No valid fields to update'] };
+  }
+
+  return { valid: true, errors: [], sanitized };
+}
+
+/**
+ * Template exercises update validation result
+ */
+export interface UpdateTemplateExercisesValidationResult extends ValidationResult {
+  sanitized?: {
+    exercises: Array<{
+      exerciseId: string;
+      orderIndex: number;
+      workingSets: number;
+      warmupSets?: number;
+      targetReps?: string;
+      restSeconds?: number;
+      notes?: string;
+    }>;
+  };
+}
+
+/**
+ * Validates template exercises update input
+ */
+export function validateTemplateExercises(data: unknown): UpdateTemplateExercisesValidationResult {
+  const errors: string[] = [];
+
+  if (typeof data !== 'object' || data === null) {
+    return { valid: false, errors: ['Request body must be an object'] };
+  }
+
+  const input = data as Record<string, unknown>;
+
+  // Validate exercises array (required)
+  if (!Array.isArray(input.exercises)) {
+    errors.push('exercises must be an array');
+    return { valid: false, errors };
+  }
+
+  if (input.exercises.length === 0) {
+    errors.push('exercises array cannot be empty');
+    return { valid: false, errors };
+  }
+
+  if (input.exercises.length > TEMPLATE_LIMITS.MAX_EXERCISES_PER_TEMPLATE) {
+    errors.push(`exercises array cannot exceed ${TEMPLATE_LIMITS.MAX_EXERCISES_PER_TEMPLATE} items`);
+    return { valid: false, errors };
+  }
+
+  // Validate each exercise
+  const exerciseErrors = validateTemplateExercisesArray(input.exercises);
+  errors.push(...exerciseErrors);
+
+  if (errors.length > 0) {
+    return { valid: false, errors };
+  }
+
+  // Build sanitized output
+  const sanitized: UpdateTemplateExercisesValidationResult['sanitized'] = {
+    exercises: (input.exercises as Array<Record<string, unknown>>).map((e, i) => ({
+      exerciseId: e.exerciseId as string,
+      orderIndex: typeof e.orderIndex === 'number' ? e.orderIndex : i,
+      workingSets: e.workingSets as number,
+      warmupSets: typeof e.warmupSets === 'number' ? e.warmupSets : undefined,
+      targetReps: typeof e.targetReps === 'string' ? e.targetReps.trim() : undefined,
+      restSeconds: typeof e.restSeconds === 'number' ? e.restSeconds : undefined,
+      notes: typeof e.notes === 'string' ? e.notes.trim() : undefined,
+    }))
+  };
+
+  return { valid: true, errors: [], sanitized };
+}
+
+/**
+ * Clone template validation result
+ */
+export interface CloneTemplateValidationResult extends ValidationResult {
+  sanitized?: {
+    name?: string;
+  };
+}
+
+/**
+ * Validates clone template input
+ */
+export function validateCloneTemplate(data: unknown): CloneTemplateValidationResult {
+  const sanitized: CloneTemplateValidationResult['sanitized'] = {};
+
+  // Allow empty body (name will be auto-generated)
+  if (data === undefined || data === null) {
+    return { valid: true, errors: [], sanitized };
+  }
+
+  if (typeof data !== 'object') {
+    return { valid: false, errors: ['Request body must be an object'] };
+  }
+
+  const input = data as Record<string, unknown>;
+
+  // Validate name (optional)
+  if (input.name !== undefined) {
+    if (typeof input.name !== 'string') {
+      return { valid: false, errors: ['name must be a string'] };
+    }
+
+    const trimmed = input.name.trim();
+    if (trimmed.length === 0) {
+      return { valid: false, errors: ['name cannot be empty'] };
+    }
+
+    if (trimmed.length > TEMPLATE_LIMITS.MAX_NAME_LENGTH) {
+      return { valid: false, errors: [`name cannot exceed ${TEMPLATE_LIMITS.MAX_NAME_LENGTH} characters`] };
+    }
+
+    sanitized.name = trimmed;
+  }
+
+  return { valid: true, errors: [], sanitized };
+}

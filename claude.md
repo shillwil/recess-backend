@@ -272,6 +272,7 @@ When making architectural decisions, keep these planned features in mind:
 - Ignore TypeScript errors
 - Skip error handling on external service calls
 - Add "Co-Authored-By" lines to git commits
+- Include any mention of Claude or AI in commits, PRs, or code comments
 
 ## Troubleshooting
 

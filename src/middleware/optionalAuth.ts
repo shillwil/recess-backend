@@ -1,6 +1,7 @@
 import { NextFunction, Response } from 'express';
 import admin from '../services/firebase';
 import { AuthenticatedRequest } from './auth';
+import { logWarn, generateCorrelationId } from '../utils/errorResponse';
 
 /**
  * Optional authentication middleware.
@@ -31,7 +32,8 @@ export const optionalAuthMiddleware = async (
     req.user = decodedToken;
   } catch (error) {
     // Invalid token - continue as unauthenticated (don't fail the request)
-    console.warn('Optional auth: Invalid token provided, continuing as unauthenticated');
+    const correlationId = req.correlationId || generateCorrelationId();
+    logWarn('Optional auth middleware', 'Invalid token provided, continuing as unauthenticated', correlationId);
   }
 
   next();

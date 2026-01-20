@@ -52,10 +52,48 @@ export function encodeCursor(data: CursorData): string {
 export function decodeCursor(cursor: string): CursorData | null {
   try {
     const decoded = Buffer.from(cursor, 'base64url').toString('utf8');
-    return JSON.parse(decoded) as CursorData;
+    const parsed = JSON.parse(decoded);
+
+    // Validate cursor structure
+    if (!isValidCursorData(parsed)) {
+      return null;
+    }
+
+    return parsed;
   } catch {
     return null;
   }
+}
+
+/**
+ * Validates that parsed cursor data has the expected structure
+ */
+function isValidCursorData(data: unknown): data is CursorData {
+  if (typeof data !== 'object' || data === null) {
+    return false;
+  }
+
+  const cursor = data as Record<string, unknown>;
+
+  // id must be a non-empty string
+  if (typeof cursor.id !== 'string' || cursor.id.length === 0) {
+    return false;
+  }
+
+  // sortValue must be string, number, or null
+  if (cursor.sortValue !== null &&
+      typeof cursor.sortValue !== 'string' &&
+      typeof cursor.sortValue !== 'number') {
+    return false;
+  }
+
+  // sortField must be a valid sort option
+  const validSortFields: ExerciseSortOption[] = ['name', 'popularity', 'recently_used', 'difficulty'];
+  if (typeof cursor.sortField !== 'string' || !validSortFields.includes(cursor.sortField as ExerciseSortOption)) {
+    return false;
+  }
+
+  return true;
 }
 
 // ============ Main Service Functions ============
@@ -145,7 +183,15 @@ export async function getExercises(
   let nextCursor: string | null = null;
   if (hasMore && exerciseList.length > 0) {
     const lastExercise = exerciseList[exerciseList.length - 1];
-    const sortValue = await getSortValueAsync(lastExercise, sort, userId);
+
+    // Pre-fetch user exercise history for recently_used sort to avoid N+1 query
+    let historyMap: Map<string, Date> | undefined;
+    if (sort === 'recently_used' && userId) {
+      const exerciseIds = exerciseList.map(e => e.id);
+      historyMap = await prefetchUserExerciseHistory(userId, exerciseIds);
+    }
+
+    const sortValue = getSortValue(lastExercise, sort, historyMap);
     nextCursor = encodeCursor({
       id: lastExercise.id,
       sortValue,
@@ -403,12 +449,42 @@ function buildCursorCondition(
   }
 }
 
+/**
+ * Type alias for Drizzle query builder with orderBy capability.
+ * Due to Drizzle's complex generic system, precise typing of query builders
+ * that support chained orderBy operations is impractical. This type alias
+ * documents the expected interface while allowing TypeScript compilation.
+ *
+ * Expected interface:
+ * - Must have orderBy(...columns: SQL[]) method that returns the same type
+ * - Typically a PgSelectBase or similar Drizzle select query builder
+ *
+ * @see https://orm.drizzle.team/docs/select#orderby
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DrizzleQueryBuilderWithOrderBy = any;
+
+/**
+ * Apply sorting to a Drizzle query builder.
+ *
+ * This function modifies a Drizzle select query by applying the appropriate
+ * ORDER BY clause based on the sort option and direction.
+ *
+ * @param queryBuilder - A Drizzle query builder (select statement)
+ * @param sort - The field to sort by
+ * @param order - Sort direction ('asc' or 'desc')
+ * @param userId - Optional user ID required for 'recently_used' sort
+ * @returns The query builder with ORDER BY applied
+ *
+ * Note: Uses 'any' type due to Drizzle's complex query builder generics.
+ * The function is tested via integration tests that verify correct SQL generation.
+ */
 function applySorting(
-  queryBuilder: any,
+  queryBuilder: DrizzleQueryBuilderWithOrderBy,
   sort: ExerciseSortOption,
   order: 'asc' | 'desc',
   userId?: string
-): any {
+): DrizzleQueryBuilderWithOrderBy {
   switch (sort) {
     case 'name':
       return order === 'asc'
@@ -449,11 +525,55 @@ function applySorting(
   }
 }
 
-async function getSortValueAsync(
-  exercise: { id: string; name: string; popularityScore: any; difficulty: any },
+// Type for exercise data used in sorting
+interface ExerciseSortData {
+  id: string;
+  name: string;
+  popularityScore: string | null;
+  difficulty: 'beginner' | 'intermediate' | 'advanced' | null;
+}
+
+/**
+ * Pre-fetch user exercise history for multiple exercises in a single query.
+ * This avoids N+1 queries when building cursors for recently_used sort.
+ */
+async function prefetchUserExerciseHistory(
+  userId: string,
+  exerciseIds: string[]
+): Promise<Map<string, Date>> {
+  if (exerciseIds.length === 0) {
+    return new Map();
+  }
+
+  const historyRecords = await db
+    .select({
+      exerciseId: userExerciseHistory.exerciseId,
+      lastUsedAt: userExerciseHistory.lastUsedAt
+    })
+    .from(userExerciseHistory)
+    .where(
+      and(
+        eq(userExerciseHistory.userId, userId),
+        inArray(userExerciseHistory.exerciseId, exerciseIds)
+      )
+    );
+
+  const map = new Map<string, Date>();
+  for (const record of historyRecords) {
+    map.set(record.exerciseId, record.lastUsedAt);
+  }
+  return map;
+}
+
+/**
+ * Get the sort value for an exercise synchronously using pre-fetched data.
+ * For recently_used sort, uses the provided historyMap instead of querying.
+ */
+function getSortValue(
+  exercise: ExerciseSortData,
   sort: ExerciseSortOption,
-  userId?: string
-): Promise<string | number | null> {
+  historyMap?: Map<string, Date>
+): string | number | null {
   switch (sort) {
     case 'name':
       return exercise.name;
@@ -462,20 +582,11 @@ async function getSortValueAsync(
     case 'difficulty':
       return exercise.difficulty;
     case 'recently_used':
-      // Fetch the actual lastUsedAt from user_exercise_history
-      if (!userId) return null;
-      const history = await db
-        .select({ lastUsedAt: userExerciseHistory.lastUsedAt })
-        .from(userExerciseHistory)
-        .where(
-          and(
-            eq(userExerciseHistory.userId, userId),
-            eq(userExerciseHistory.exerciseId, exercise.id)
-          )
-        )
-        .limit(1);
-      return history.length > 0
-        ? history[0].lastUsedAt.toISOString()
+      // Use pre-fetched history data
+      if (!historyMap) return '1970-01-01T00:00:00.000Z';
+      const lastUsedAt = historyMap.get(exercise.id);
+      return lastUsedAt
+        ? lastUsedAt.toISOString()
         : '1970-01-01T00:00:00.000Z';
     default:
       return exercise.name;

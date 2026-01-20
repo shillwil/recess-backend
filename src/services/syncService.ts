@@ -673,9 +673,9 @@ export class SyncService {
           const exercise = workoutExercises.get(exerciseId)!;
           exercise.sets.push({
             clientId: row.sets.clientId || row.sets.id,
-            reps: row.sets.reps,
-            weight: parseFloat(row.sets.weightLbs),
-            setType: row.sets.setType as 'warmup' | 'working',
+            reps: row.sets.reps ?? 0,
+            weight: parseFloat(row.sets.weightLbs ?? '0'),
+            setType: (row.sets.setType as 'warmup' | 'working') ?? 'working',
             exerciseTypeName: row.workout_exercises.exerciseName,
             exerciseTypePrimaryMuscles: row.workout_exercises.primaryMuscles,
             updatedAt: row.sets.updatedAt.toISOString(),

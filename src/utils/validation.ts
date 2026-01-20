@@ -449,6 +449,11 @@ export function validateSyncPayload(payload: unknown): SyncPayloadValidationResu
         continue;
       }
 
+      // Validate exercise clientId
+      if (!exercise.clientId || typeof exercise.clientId !== 'string') {
+        errors.push(`workouts[${i}].exercises[${j}].clientId is required and must be a string`);
+      }
+
       // Validate exercise name
       if (!exercise.exerciseName || typeof exercise.exerciseName !== 'string') {
         errors.push(`workouts[${i}].exercises[${j}].exerciseName is required`);
@@ -477,18 +482,23 @@ export function validateSyncPayload(payload: unknown): SyncPayloadValidationResu
           continue;
         }
 
-        // Validate weight
-        if (typeof set.weight === 'number') {
-          if (set.weight < 0 || set.weight > SYNC_LIMITS.MAX_WEIGHT_LBS) {
-            errors.push(`workouts[${i}].exercises[${j}].sets[${k}].weight must be between 0 and ${SYNC_LIMITS.MAX_WEIGHT_LBS}`);
-          }
+        // Validate set clientId
+        if (!set.clientId || typeof set.clientId !== 'string') {
+          errors.push(`workouts[${i}].exercises[${j}].sets[${k}].clientId is required and must be a string`);
         }
 
-        // Validate reps
-        if (typeof set.reps === 'number') {
-          if (set.reps < 0 || set.reps > SYNC_LIMITS.MAX_REPS) {
-            errors.push(`workouts[${i}].exercises[${j}].sets[${k}].reps must be between 0 and ${SYNC_LIMITS.MAX_REPS}`);
-          }
+        // Validate weight is required and within bounds
+        if (typeof set.weight !== 'number' || isNaN(set.weight as number)) {
+          errors.push(`workouts[${i}].exercises[${j}].sets[${k}].weight is required and must be a number`);
+        } else if (set.weight < 0 || set.weight > SYNC_LIMITS.MAX_WEIGHT_LBS) {
+          errors.push(`workouts[${i}].exercises[${j}].sets[${k}].weight must be between 0 and ${SYNC_LIMITS.MAX_WEIGHT_LBS}`);
+        }
+
+        // Validate reps is required and within bounds
+        if (typeof set.reps !== 'number' || isNaN(set.reps as number)) {
+          errors.push(`workouts[${i}].exercises[${j}].sets[${k}].reps is required and must be a number`);
+        } else if (set.reps < 0 || set.reps > SYNC_LIMITS.MAX_REPS) {
+          errors.push(`workouts[${i}].exercises[${j}].sets[${k}].reps must be between 0 and ${SYNC_LIMITS.MAX_REPS}`);
         }
       }
     }

@@ -468,7 +468,7 @@ export class SyncService {
           // If server is newer, keep server version (don't update)
 
           // 4. Process sets for this exercise (regardless of exercise update outcome)
-          await this.syncExerciseSets(tx, existingExercise.id, exerciseData.sets);
+          await this.syncExerciseSets(tx, existingExercise.id, exerciseData.sets, clientExerciseTimestamp);
         } else {
           // New exercise - insert it
           const newExerciseId = crypto.randomUUID();
@@ -523,11 +523,13 @@ export class SyncService {
   /**
    * Syncs sets for an existing exercise with conflict resolution.
    * Called within a transaction context.
+   * @param exerciseClientTimestamp - The exercise's client timestamp, used for deletion reference when no sets remain
    */
   private static async syncExerciseSets(
     tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
     workoutExerciseId: string,
-    clientSets: SetSyncData[]
+    clientSets: SetSyncData[],
+    exerciseClientTimestamp: Date
   ) {
     // Fetch existing sets
     const existingSets = await tx.select()
@@ -586,10 +588,11 @@ export class SyncService {
     }
 
     // Handle sets deleted on client
-    // Use the newest client set timestamp as deletion reference, or fall back to now
+    // Use the newest client set timestamp as deletion reference, or fall back to exercise timestamp
+    // (consistent with exercise deletion logic which uses the parent workout's timestamp)
     const newestClientSetTime = clientSets.length > 0
       ? new Date(Math.max(...clientSets.map(s => new Date(s.updatedAt).getTime())))
-      : new Date();
+      : exerciseClientTimestamp;
 
     for (const [clientId, existingSet] of existingSetMap) {
       if (!processedSetClientIds.has(clientId)) {

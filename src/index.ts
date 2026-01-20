@@ -108,6 +108,20 @@ const profileLimiter = rateLimit({
 
 // Middleware
 app.use(express.json({ limit: '10mb' })); // Limit body size for sync payloads
+
+// Health check endpoint - BEFORE CORS middleware
+// This allows load balancers, Kubernetes probes, and monitoring systems to access
+// the health endpoint without requiring Origin headers (which they don't send)
+app.get('/health', (req: Request, res: Response) => {
+  res.status(200).json({
+    status: 'healthy',
+    environment: config.env,
+    timestamp: new Date().toISOString(),
+    version: '1.0.0'
+  });
+});
+
+// CORS and rate limiting applied to all other routes
 app.use(cors(corsOptions));
 app.use(generalLimiter); // Apply general rate limiting to all routes
 
@@ -117,16 +131,6 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   (req as AuthenticatedRequest & { correlationId: string }).correlationId = correlationId;
   res.setHeader('X-Correlation-ID', correlationId);
   next();
-});
-
-// Health check endpoint
-app.get('/health', (req: Request, res: Response) => {
-  res.status(200).json({
-    status: 'healthy',
-    environment: config.env,
-    timestamp: new Date().toISOString(),
-    version: '1.0.0'
-  });
 });
 
 // Public route

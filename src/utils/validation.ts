@@ -65,13 +65,16 @@ export function validateUserProfileUpdate(data: unknown): ValidationResult {
     height: (v) => {
       if (v === undefined) return { valid: true };
       if (typeof v !== 'number' || isNaN(v)) return { valid: false, error: 'height must be a number' };
-      if (v < 0 || v > 300) return { valid: false, error: 'height must be between 0 and 300 cm' };
+      // Database stores height in inches (schema: real('height'), // in inches)
+      // Max 108 inches = 9 feet (reasonable upper bound for human height)
+      if (v < 0 || v > 108) return { valid: false, error: 'height must be between 0 and 108 inches' };
       return { valid: true, sanitized: v };
     },
     weight: (v) => {
       if (v === undefined) return { valid: true };
       if (typeof v !== 'number' || isNaN(v)) return { valid: false, error: 'weight must be a number' };
-      if (v < 0 || v > 1000) return { valid: false, error: 'weight must be between 0 and 1000' };
+      // Database stores weight in lbs (schema: real('weight'), // in lbs)
+      if (v < 0 || v > 1000) return { valid: false, error: 'weight must be between 0 and 1000 lbs' };
       return { valid: true, sanitized: v };
     },
     age: (v) => {

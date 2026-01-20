@@ -122,10 +122,73 @@ npm run start:prod       # Run with migrations for production
 # Database
 npm run db:generate      # Generate new migration from schema changes
 npm run db:migrate       # Apply pending migrations
+npm run db:seed          # Seed exercises table with predefined exercises
 
-# Docker (local development)
+# Docker
 docker-compose up -d     # Start PostgreSQL + backend
 docker-compose down      # Stop services
+```
+
+## Local Development with Docker
+
+**Prerequisites:** Docker and Docker Compose installed
+
+### Quick Start
+
+```bash
+# 1. Start PostgreSQL container
+docker start recess_postgres_dev || docker-compose up -d postgres
+
+# 2. Install dependencies (if not already done)
+npm install
+
+# 3. Run migrations
+DATABASE_URL="postgresql://postgres:password@localhost:5432/recess_dev" npm run db:migrate
+
+# 4. Seed the exercises table (optional, for exercise data)
+DATABASE_URL="postgresql://postgres:password@localhost:5432/recess_dev" npm run db:seed
+
+# 5. Start the development server
+DATABASE_URL="postgresql://postgres:password@localhost:5432/recess_dev" npm run dev
+```
+
+### Database Connection Details
+
+| Property | Value |
+|----------|-------|
+| Host | `localhost` |
+| Port | `5432` |
+| Database | `recess_dev` |
+| User | `postgres` |
+| Password | `password` |
+| Full URL | `postgresql://postgres:password@localhost:5432/recess_dev` |
+
+### Troubleshooting Docker
+
+**Container name conflict:**
+```bash
+# If you see "container name already in use" error
+docker start recess_postgres_dev  # Try starting existing container first
+# Or remove and recreate
+docker rm recess_postgres_dev && docker-compose up -d postgres
+```
+
+**Check if PostgreSQL is running:**
+```bash
+docker ps | grep recess_postgres
+```
+
+**View PostgreSQL logs:**
+```bash
+docker logs recess_postgres_dev
+```
+
+**Reset database (delete all data):**
+```bash
+docker-compose down -v  # -v removes volumes
+docker-compose up -d postgres
+DATABASE_URL="postgresql://postgres:password@localhost:5432/recess_dev" npm run db:migrate
+DATABASE_URL="postgresql://postgres:password@localhost:5432/recess_dev" npm run db:seed
 ```
 
 ## API Endpoints
@@ -208,6 +271,7 @@ When making architectural decisions, keep these planned features in mind:
 - Make breaking API changes without versioning
 - Ignore TypeScript errors
 - Skip error handling on external service calls
+- Add "Co-Authored-By" lines to git commits
 
 ## Troubleshooting
 

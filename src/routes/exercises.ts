@@ -9,13 +9,15 @@ import {
   recordExerciseUsage
 } from '../services/exerciseService';
 import { ExerciseListQuery, ExerciseSortOption } from '../models/exercise.types';
+import { validateExerciseListQuery } from '../utils/validation';
+import {
+  generateCorrelationId,
+  logError,
+  logWarn,
+  sendErrorResponse
+} from '../utils/errorResponse';
 
 const router = Router();
-
-const isDevelopment = process.env.NODE_ENV === 'development';
-
-// Valid sort options
-const VALID_SORTS: ExerciseSortOption[] = ['name', 'popularity', 'recently_used', 'difficulty'];
 
 // UUID validation regex
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -28,59 +30,35 @@ function isValidUuid(id: string): boolean {
 }
 
 /**
- * Creates an error response object, only including error details in development
- */
-function createErrorResponse(message: string, error: unknown) {
-  const response: { success: false; message: string; error?: string } = {
-    success: false,
-    message
-  };
-
-  if (isDevelopment && error instanceof Error) {
-    response.error = error.message;
-  }
-
-  return response;
-}
-
-/**
  * GET /api/exercises
  * List exercises with pagination, filtering, and search
  * Public endpoint with optional auth for personalization
  */
 router.get('/', optionalAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  const correlationId = (req as AuthenticatedRequest & { correlationId: string }).correlationId || generateCorrelationId();
   try {
-    // Parse query parameters
+    // Validate and sanitize query parameters
+    const validation = validateExerciseListQuery(req.query as Record<string, unknown>);
+    if (!validation.valid) {
+      sendErrorResponse(res, 400, 'Invalid query parameters', undefined, correlationId, {
+        validationErrors: validation.errors
+      });
+      return;
+    }
+
+    // Build validated query with defaults
     const query: ExerciseListQuery = {
-      cursor: req.query.cursor as string | undefined,
-      limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
-      muscleGroup: req.query.muscleGroup as string | string[] | undefined,
-      difficulty: req.query.difficulty as any,
-      equipment: req.query.equipment as string | string[] | undefined,
-      movementPattern: req.query.movementPattern as any,
-      exerciseType: req.query.exerciseType as any,
-      search: req.query.search as string | undefined,
-      sort: (req.query.sort as ExerciseSortOption) || 'name',
-      order: (req.query.order as 'asc' | 'desc') || 'asc'
+      cursor: validation.sanitized?.cursor,
+      limit: validation.sanitized?.limit,
+      muscleGroup: validation.sanitized?.muscleGroup,
+      difficulty: validation.sanitized?.difficulty,
+      equipment: validation.sanitized?.equipment,
+      movementPattern: validation.sanitized?.movementPattern,
+      exerciseType: validation.sanitized?.exerciseType,
+      search: validation.sanitized?.search,
+      sort: validation.sanitized?.sort || 'name',
+      order: validation.sanitized?.order || 'asc'
     };
-
-    // Validate sort option
-    if (query.sort && !VALID_SORTS.includes(query.sort)) {
-      res.status(400).json({
-        success: false,
-        message: `Invalid sort option. Valid options: ${VALID_SORTS.join(', ')}`
-      });
-      return;
-    }
-
-    // Validate order
-    if (query.order && !['asc', 'desc'].includes(query.order)) {
-      res.status(400).json({
-        success: false,
-        message: 'Invalid order option. Valid options: asc, desc'
-      });
-      return;
-    }
 
     // Get user ID if authenticated (for recently_used sort)
     let userId: string | undefined;
@@ -89,8 +67,16 @@ router.get('/', optionalAuthMiddleware, async (req: AuthenticatedRequest, res: R
         const user = await getOrCreateUser(req.user);
         userId = user.id;
       } catch (error) {
-        // Continue without user context
-        console.warn('Failed to get user for exercise list:', error);
+        // Log the error but continue without user context for non-personalized features
+        logWarn('GET /api/exercises', 'Failed to get user context, continuing without personalization', correlationId, {
+          errorMessage: error instanceof Error ? error.message : 'Unknown error'
+        });
+        // If user auth was attempted but failed with a real error (not just missing user),
+        // and they need user-specific features, we should handle that
+        if (query.sort === 'recently_used') {
+          // For recently_used, we need auth - re-throw to trigger proper error
+          throw new Error('User authentication required for recently_used sort');
+        }
       }
     }
 
@@ -98,7 +84,8 @@ router.get('/', optionalAuthMiddleware, async (req: AuthenticatedRequest, res: R
     if (query.sort === 'recently_used' && !userId) {
       res.status(401).json({
         success: false,
-        message: 'Authentication required for "recently_used" sort option'
+        message: 'Authentication required for "recently_used" sort option',
+        correlationId
       });
       return;
     }
@@ -107,11 +94,12 @@ router.get('/', optionalAuthMiddleware, async (req: AuthenticatedRequest, res: R
 
     res.json({
       success: true,
-      ...result
+      data: result,
+      correlationId
     });
   } catch (error) {
-    console.error('Error in GET /api/exercises:', error);
-    res.status(500).json(createErrorResponse('Failed to fetch exercises', error));
+    logError('GET /api/exercises', error, correlationId);
+    sendErrorResponse(res, 500, 'Failed to fetch exercises', error, correlationId);
   }
 });
 
@@ -121,16 +109,18 @@ router.get('/', optionalAuthMiddleware, async (req: AuthenticatedRequest, res: R
  * Public endpoint
  */
 router.get('/filters', async (req: Request, res: Response) => {
+  const correlationId = (req as Request & { correlationId: string }).correlationId || generateCorrelationId();
   try {
     const metadata = await getFilterMetadata();
 
     res.json({
       success: true,
-      filters: metadata
+      data: { filters: metadata },
+      correlationId
     });
   } catch (error) {
-    console.error('Error in GET /api/exercises/filters:', error);
-    res.status(500).json(createErrorResponse('Failed to fetch filter metadata', error));
+    logError('GET /api/exercises/filters', error, correlationId);
+    sendErrorResponse(res, 500, 'Failed to fetch filter metadata', error, correlationId);
   }
 });
 
@@ -140,14 +130,12 @@ router.get('/filters', async (req: Request, res: Response) => {
  * Public endpoint
  */
 router.get('/:id', async (req: Request, res: Response) => {
+  const correlationId = (req as Request & { correlationId: string }).correlationId || generateCorrelationId();
   try {
     const { id } = req.params;
 
     if (!isValidUuid(id)) {
-      res.status(400).json({
-        success: false,
-        message: 'Invalid exercise ID format'
-      });
+      sendErrorResponse(res, 400, 'Invalid exercise ID format', undefined, correlationId);
       return;
     }
 
@@ -156,18 +144,20 @@ router.get('/:id', async (req: Request, res: Response) => {
     if (!exercise) {
       res.status(404).json({
         success: false,
-        message: 'Exercise not found'
+        message: 'Exercise not found',
+        correlationId
       });
       return;
     }
 
     res.json({
       success: true,
-      exercise
+      data: { exercise },
+      correlationId
     });
   } catch (error) {
-    console.error('Error in GET /api/exercises/:id:', error);
-    res.status(500).json(createErrorResponse('Failed to fetch exercise', error));
+    logError('GET /api/exercises/:id', error, correlationId, { exerciseId: req.params.id });
+    sendErrorResponse(res, 500, 'Failed to fetch exercise', error, correlationId);
   }
 });
 
@@ -180,14 +170,12 @@ router.post(
   '/:id/record-usage',
   firebaseAuthMiddleware,
   async (req: AuthenticatedRequest, res: Response) => {
+    const correlationId = (req as AuthenticatedRequest & { correlationId: string }).correlationId || generateCorrelationId();
     try {
       const { id } = req.params;
 
       if (!isValidUuid(id)) {
-        res.status(400).json({
-          success: false,
-          message: 'Invalid exercise ID format'
-        });
+        sendErrorResponse(res, 400, 'Invalid exercise ID format', undefined, correlationId);
         return;
       }
 
@@ -196,11 +184,12 @@ router.post(
 
       res.json({
         success: true,
-        message: 'Exercise usage recorded'
+        message: 'Exercise usage recorded',
+        correlationId
       });
     } catch (error) {
-      console.error('Error in POST /api/exercises/:id/record-usage:', error);
-      res.status(500).json(createErrorResponse('Failed to record exercise usage', error));
+      logError('POST /api/exercises/:id/record-usage', error, correlationId, { exerciseId: req.params.id });
+      sendErrorResponse(res, 500, 'Failed to record exercise usage', error, correlationId);
     }
   }
 );

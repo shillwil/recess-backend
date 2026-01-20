@@ -7,6 +7,7 @@ import { AuthenticatedRequest, firebaseAuthMiddleware } from './middleware/auth'
 import { getOrCreateUser, updateUserProfile } from './services/userService';
 import { SyncService, SyncPayload } from './services/syncService';
 import exerciseRoutes from './routes/exercises';
+import templateRoutes from './routes/templates';
 import { validateUserProfileUpdate, validateSyncPayload } from './utils/validation';
 import {
   generateCorrelationId,
@@ -207,6 +208,9 @@ app.put('/api/me', profileLimiter, firebaseAuthMiddleware, async (req: Authentic
 
 // Exercise API routes
 app.use('/api/exercises', exerciseRoutes);
+
+// Template API routes (rate limiting handled in routes file for write operations only)
+app.use('/api/templates', templateRoutes);
 
 // Sync endpoint - sync user's workout data
 app.post('/api/sync', syncLimiter, firebaseAuthMiddleware, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {

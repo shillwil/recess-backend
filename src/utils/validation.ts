@@ -731,18 +731,22 @@ function validateTemplateExercisesArray(exercises: unknown[]): string[] {
     }
 
     // Validate orderIndex (optional, defaults to array index)
+    // Use the final orderIndex value (explicit or defaulted) for duplicate detection
+    let finalOrderIndex: number = i; // Default to array index
     if (exercise.orderIndex !== undefined) {
       if (typeof exercise.orderIndex !== 'number' || !Number.isInteger(exercise.orderIndex)) {
         errors.push(`exercises[${i}].orderIndex must be an integer`);
       } else if (exercise.orderIndex < 0) {
         errors.push(`exercises[${i}].orderIndex must be >= 0`);
       } else {
-        if (seenOrderIndices.has(exercise.orderIndex)) {
-          errors.push(`exercises[${i}].orderIndex ${exercise.orderIndex} is duplicated`);
-        }
-        seenOrderIndices.add(exercise.orderIndex);
+        finalOrderIndex = exercise.orderIndex;
       }
     }
+    // Check for duplicate using the final value (explicit or defaulted)
+    if (seenOrderIndices.has(finalOrderIndex)) {
+      errors.push(`exercises[${i}].orderIndex ${finalOrderIndex} is duplicated`);
+    }
+    seenOrderIndices.add(finalOrderIndex);
 
     // Validate workingSets (required)
     if (exercise.workingSets === undefined || typeof exercise.workingSets !== 'number') {

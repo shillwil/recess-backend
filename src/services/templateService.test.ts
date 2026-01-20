@@ -397,6 +397,22 @@ describe('template validation', () => {
       expect(result.sanitized?.exercises[0].orderIndex).toBe(0);
       expect(result.sanitized?.exercises[1].orderIndex).toBe(1);
     });
+
+    it('should reject when explicit orderIndex conflicts with defaulted orderIndex', () => {
+      // exercise[0] has explicit orderIndex: 1
+      // exercise[1] omits orderIndex, so it defaults to array index 1
+      // Both end up with orderIndex 1 - should be rejected
+      const result = validateCreateTemplate({
+        name: 'Test',
+        exercises: [
+          { exerciseId: validExerciseId, orderIndex: 1, workingSets: 3 },
+          { exerciseId: validExerciseId, workingSets: 4 } // defaults to index 1
+        ]
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.includes('orderIndex 1 is duplicated'))).toBe(true);
+    });
   });
 
   describe('validateUpdateTemplate', () => {

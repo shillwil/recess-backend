@@ -163,14 +163,16 @@ export async function getTemplates(
   const conditions: SQL[] = [eq(workoutTemplates.userId, userId)];
 
   // Handle cursor pagination
+  // Note: Cursor is only valid if sortField matches the requested sort
   if (query.cursor) {
     const cursorData = decodeCursor(query.cursor);
-    if (cursorData) {
+    if (cursorData && cursorData.sortField === sort) {
       const cursorCondition = buildCursorCondition(cursorData, order);
       if (cursorCondition) {
         conditions.push(cursorCondition);
       }
     }
+    // If sortField doesn't match, cursor is ignored (pagination restarts)
   }
 
   // Build the query with exercise count subquery and apply sorting

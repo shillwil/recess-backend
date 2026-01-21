@@ -995,3 +995,415 @@ export function validateCloneTemplate(data: unknown): CloneTemplateValidationRes
 
   return { valid: true, errors: [], sanitized };
 }
+
+// ============ Program Validation ============
+
+/**
+ * Program size limits
+ */
+export const PROGRAM_LIMITS = {
+  MAX_NAME_LENGTH: 200,
+  MAX_DESCRIPTION_LENGTH: 1000,
+  MAX_DAYS_PER_WEEK: 7,
+  MIN_DAYS_PER_WEEK: 1,
+  MAX_DURATION_WEEKS: 52,
+  MAX_DAY_LABEL_LENGTH: 50,
+} as const;
+
+/**
+ * Program list query validation result
+ */
+export interface ProgramQueryValidationResult extends ValidationResult {
+  sanitized?: {
+    cursor?: string;
+    limit?: number;
+    sort?: 'name' | 'createdAt' | 'updatedAt';
+    order?: 'asc' | 'desc';
+  };
+}
+
+/**
+ * Validates program list query parameters
+ */
+export function validateProgramListQuery(query: Record<string, unknown>): ProgramQueryValidationResult {
+  const errors: string[] = [];
+  const sanitized: ProgramQueryValidationResult['sanitized'] = {};
+
+  // Cursor validation
+  if (query.cursor !== undefined) {
+    if (typeof query.cursor !== 'string') {
+      errors.push('cursor must be a string');
+    } else {
+      sanitized.cursor = query.cursor;
+    }
+  }
+
+  // Limit validation with bounds checking
+  if (query.limit !== undefined) {
+    const limitStr = String(query.limit);
+    const limit = parseInt(limitStr, 10);
+    if (isNaN(limit)) {
+      errors.push('limit must be a valid integer');
+    } else if (limit < 1) {
+      errors.push('limit must be at least 1');
+    } else if (limit > 100) {
+      errors.push('limit cannot exceed 100');
+    } else {
+      sanitized.limit = limit;
+    }
+  }
+
+  // Sort validation
+  const VALID_PROGRAM_SORTS = ['name', 'createdAt', 'updatedAt'] as const;
+  if (query.sort !== undefined) {
+    if (typeof query.sort !== 'string') {
+      errors.push('sort must be a string');
+    } else if (!VALID_PROGRAM_SORTS.includes(query.sort as typeof VALID_PROGRAM_SORTS[number])) {
+      errors.push(`Invalid sort option: "${query.sort}". Valid options: ${VALID_PROGRAM_SORTS.join(', ')}`);
+    } else {
+      sanitized.sort = query.sort as typeof VALID_PROGRAM_SORTS[number];
+    }
+  }
+
+  // Order validation
+  if (query.order !== undefined) {
+    if (typeof query.order !== 'string') {
+      errors.push('order must be a string');
+    } else if (!['asc', 'desc'].includes(query.order)) {
+      errors.push('order must be "asc" or "desc"');
+    } else {
+      sanitized.order = query.order as 'asc' | 'desc';
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    sanitized: errors.length === 0 ? sanitized : undefined
+  };
+}
+
+/**
+ * Create program validation result
+ */
+export interface CreateProgramValidationResult extends ValidationResult {
+  sanitized?: {
+    name: string;
+    description?: string;
+    daysPerWeek: number;
+    durationWeeks?: number;
+    workouts: Array<{
+      dayNumber: number;
+      templateId: string;
+      dayLabel?: string;
+    }>;
+  };
+}
+
+/**
+ * Validates create program input
+ */
+export function validateCreateProgram(data: unknown): CreateProgramValidationResult {
+  const errors: string[] = [];
+
+  if (typeof data !== 'object' || data === null) {
+    return { valid: false, errors: ['Request body must be an object'] };
+  }
+
+  const input = data as Record<string, unknown>;
+
+  // Validate name (required)
+  if (!input.name || typeof input.name !== 'string') {
+    errors.push('name is required and must be a string');
+  } else {
+    const trimmed = input.name.trim();
+    if (trimmed.length === 0) {
+      errors.push('name cannot be empty');
+    } else if (trimmed.length > PROGRAM_LIMITS.MAX_NAME_LENGTH) {
+      errors.push(`name cannot exceed ${PROGRAM_LIMITS.MAX_NAME_LENGTH} characters`);
+    }
+  }
+
+  // Validate description (optional)
+  if (input.description !== undefined && input.description !== null) {
+    if (typeof input.description !== 'string') {
+      errors.push('description must be a string');
+    } else if (input.description.length > PROGRAM_LIMITS.MAX_DESCRIPTION_LENGTH) {
+      errors.push(`description cannot exceed ${PROGRAM_LIMITS.MAX_DESCRIPTION_LENGTH} characters`);
+    }
+  }
+
+  // Validate daysPerWeek (required)
+  if (input.daysPerWeek === undefined || typeof input.daysPerWeek !== 'number') {
+    errors.push('daysPerWeek is required and must be a number');
+  } else if (!Number.isInteger(input.daysPerWeek)) {
+    errors.push('daysPerWeek must be an integer');
+  } else if (input.daysPerWeek < PROGRAM_LIMITS.MIN_DAYS_PER_WEEK || input.daysPerWeek > PROGRAM_LIMITS.MAX_DAYS_PER_WEEK) {
+    errors.push(`daysPerWeek must be between ${PROGRAM_LIMITS.MIN_DAYS_PER_WEEK} and ${PROGRAM_LIMITS.MAX_DAYS_PER_WEEK}`);
+  }
+
+  // Validate durationWeeks (optional)
+  if (input.durationWeeks !== undefined && input.durationWeeks !== null) {
+    if (typeof input.durationWeeks !== 'number') {
+      errors.push('durationWeeks must be a number');
+    } else if (!Number.isInteger(input.durationWeeks)) {
+      errors.push('durationWeeks must be an integer');
+    } else if (input.durationWeeks < 1 || input.durationWeeks > PROGRAM_LIMITS.MAX_DURATION_WEEKS) {
+      errors.push(`durationWeeks must be between 1 and ${PROGRAM_LIMITS.MAX_DURATION_WEEKS}`);
+    }
+  }
+
+  // Validate workouts array (required)
+  if (!Array.isArray(input.workouts)) {
+    errors.push('workouts must be an array');
+    return { valid: false, errors };
+  }
+
+  if (input.workouts.length === 0) {
+    errors.push('workouts array cannot be empty');
+  }
+
+  // Validate each workout
+  const daysPerWeek = typeof input.daysPerWeek === 'number' ? input.daysPerWeek : 7;
+  const workoutErrors = validateProgramWorkoutsArray(input.workouts, daysPerWeek);
+  errors.push(...workoutErrors);
+
+  if (errors.length > 0) {
+    return { valid: false, errors };
+  }
+
+  // Build sanitized output
+  const sanitized: CreateProgramValidationResult['sanitized'] = {
+    name: (input.name as string).trim(),
+    daysPerWeek: input.daysPerWeek as number,
+    workouts: (input.workouts as Array<Record<string, unknown>>).map((w) => ({
+      dayNumber: w.dayNumber as number,
+      templateId: w.templateId as string,
+      dayLabel: typeof w.dayLabel === 'string' ? w.dayLabel.trim() : undefined,
+    }))
+  };
+
+  if (typeof input.description === 'string' && input.description.trim().length > 0) {
+    sanitized.description = input.description.trim();
+  }
+
+  if (typeof input.durationWeeks === 'number') {
+    sanitized.durationWeeks = input.durationWeeks;
+  }
+
+  return { valid: true, errors: [], sanitized };
+}
+
+/**
+ * Validates an array of program workouts
+ */
+function validateProgramWorkoutsArray(workouts: unknown[], daysPerWeek: number): string[] {
+  const errors: string[] = [];
+  const seenDayNumbers = new Set<number>();
+
+  for (let i = 0; i < workouts.length; i++) {
+    const workout = workouts[i] as Record<string, unknown>;
+
+    if (typeof workout !== 'object' || workout === null) {
+      errors.push(`workouts[${i}] must be an object`);
+      continue;
+    }
+
+    // Validate dayNumber (required)
+    if (workout.dayNumber === undefined || typeof workout.dayNumber !== 'number') {
+      errors.push(`workouts[${i}].dayNumber is required and must be a number`);
+    } else if (!Number.isInteger(workout.dayNumber)) {
+      errors.push(`workouts[${i}].dayNumber must be an integer`);
+    } else if (workout.dayNumber < 0 || workout.dayNumber >= daysPerWeek) {
+      errors.push(`workouts[${i}].dayNumber must be between 0 and ${daysPerWeek - 1}`);
+    } else {
+      if (seenDayNumbers.has(workout.dayNumber)) {
+        errors.push(`workouts[${i}].dayNumber ${workout.dayNumber} is duplicated`);
+      }
+      seenDayNumbers.add(workout.dayNumber);
+    }
+
+    // Validate templateId (required UUID)
+    if (!workout.templateId || typeof workout.templateId !== 'string') {
+      errors.push(`workouts[${i}].templateId is required and must be a string`);
+    } else if (!isValidUuid(workout.templateId)) {
+      errors.push(`workouts[${i}].templateId must be a valid UUID`);
+    }
+
+    // Validate dayLabel (optional)
+    if (workout.dayLabel !== undefined && workout.dayLabel !== null) {
+      if (typeof workout.dayLabel !== 'string') {
+        errors.push(`workouts[${i}].dayLabel must be a string`);
+      } else if (workout.dayLabel.length > PROGRAM_LIMITS.MAX_DAY_LABEL_LENGTH) {
+        errors.push(`workouts[${i}].dayLabel cannot exceed ${PROGRAM_LIMITS.MAX_DAY_LABEL_LENGTH} characters`);
+      }
+    }
+
+    // Stop early if too many errors
+    if (errors.length > 20) {
+      errors.push('Too many validation errors. Stopping validation.');
+      break;
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Update program validation result
+ */
+export interface UpdateProgramValidationResult extends ValidationResult {
+  sanitized?: {
+    name?: string;
+    description?: string;
+    daysPerWeek?: number;
+    durationWeeks?: number | null;
+  };
+}
+
+/**
+ * Validates update program input
+ */
+export function validateUpdateProgram(data: unknown): UpdateProgramValidationResult {
+  const errors: string[] = [];
+  const sanitized: UpdateProgramValidationResult['sanitized'] = {};
+
+  if (typeof data !== 'object' || data === null) {
+    return { valid: false, errors: ['Request body must be an object'] };
+  }
+
+  const input = data as Record<string, unknown>;
+
+  // Check for unknown fields
+  const allowedFields = ['name', 'description', 'daysPerWeek', 'durationWeeks'];
+  const inputFields = Object.keys(input);
+  const unknownFields = inputFields.filter(f => !allowedFields.includes(f));
+
+  if (unknownFields.length > 0) {
+    errors.push(`Unknown fields: ${unknownFields.join(', ')}. Allowed fields: ${allowedFields.join(', ')}`);
+  }
+
+  // Validate name (optional)
+  if (input.name !== undefined) {
+    if (typeof input.name !== 'string') {
+      errors.push('name must be a string');
+    } else {
+      const trimmed = input.name.trim();
+      if (trimmed.length === 0) {
+        errors.push('name cannot be empty');
+      } else if (trimmed.length > PROGRAM_LIMITS.MAX_NAME_LENGTH) {
+        errors.push(`name cannot exceed ${PROGRAM_LIMITS.MAX_NAME_LENGTH} characters`);
+      } else {
+        sanitized.name = trimmed;
+      }
+    }
+  }
+
+  // Validate description (optional, can be set to null to clear)
+  if (input.description !== undefined) {
+    if (input.description === null) {
+      sanitized.description = '';
+    } else if (typeof input.description !== 'string') {
+      errors.push('description must be a string or null');
+    } else if (input.description.length > PROGRAM_LIMITS.MAX_DESCRIPTION_LENGTH) {
+      errors.push(`description cannot exceed ${PROGRAM_LIMITS.MAX_DESCRIPTION_LENGTH} characters`);
+    } else {
+      sanitized.description = input.description.trim();
+    }
+  }
+
+  // Validate daysPerWeek (optional)
+  if (input.daysPerWeek !== undefined) {
+    if (typeof input.daysPerWeek !== 'number') {
+      errors.push('daysPerWeek must be a number');
+    } else if (!Number.isInteger(input.daysPerWeek)) {
+      errors.push('daysPerWeek must be an integer');
+    } else if (input.daysPerWeek < PROGRAM_LIMITS.MIN_DAYS_PER_WEEK || input.daysPerWeek > PROGRAM_LIMITS.MAX_DAYS_PER_WEEK) {
+      errors.push(`daysPerWeek must be between ${PROGRAM_LIMITS.MIN_DAYS_PER_WEEK} and ${PROGRAM_LIMITS.MAX_DAYS_PER_WEEK}`);
+    } else {
+      sanitized.daysPerWeek = input.daysPerWeek;
+    }
+  }
+
+  // Validate durationWeeks (optional, can be null for indefinite)
+  if (input.durationWeeks !== undefined) {
+    if (input.durationWeeks === null) {
+      sanitized.durationWeeks = null;
+    } else if (typeof input.durationWeeks !== 'number') {
+      errors.push('durationWeeks must be a number or null');
+    } else if (!Number.isInteger(input.durationWeeks)) {
+      errors.push('durationWeeks must be an integer');
+    } else if (input.durationWeeks < 1 || input.durationWeeks > PROGRAM_LIMITS.MAX_DURATION_WEEKS) {
+      errors.push(`durationWeeks must be between 1 and ${PROGRAM_LIMITS.MAX_DURATION_WEEKS}`);
+    } else {
+      sanitized.durationWeeks = input.durationWeeks;
+    }
+  }
+
+  if (errors.length > 0) {
+    return { valid: false, errors };
+  }
+
+  // Check if there's anything to update
+  if (Object.keys(sanitized).length === 0) {
+    return { valid: false, errors: ['No valid fields to update'] };
+  }
+
+  return { valid: true, errors: [], sanitized };
+}
+
+/**
+ * Program workouts update validation result
+ */
+export interface UpdateProgramWorkoutsValidationResult extends ValidationResult {
+  sanitized?: {
+    workouts: Array<{
+      dayNumber: number;
+      templateId: string;
+      dayLabel?: string;
+    }>;
+  };
+}
+
+/**
+ * Validates program workouts update input
+ */
+export function validateProgramWorkouts(data: unknown, daysPerWeek: number): UpdateProgramWorkoutsValidationResult {
+  const errors: string[] = [];
+
+  if (typeof data !== 'object' || data === null) {
+    return { valid: false, errors: ['Request body must be an object'] };
+  }
+
+  const input = data as Record<string, unknown>;
+
+  // Validate workouts array (required)
+  if (!Array.isArray(input.workouts)) {
+    errors.push('workouts must be an array');
+    return { valid: false, errors };
+  }
+
+  if (input.workouts.length === 0) {
+    errors.push('workouts array cannot be empty');
+    return { valid: false, errors };
+  }
+
+  // Validate each workout
+  const workoutErrors = validateProgramWorkoutsArray(input.workouts, daysPerWeek);
+  errors.push(...workoutErrors);
+
+  if (errors.length > 0) {
+    return { valid: false, errors };
+  }
+
+  // Build sanitized output
+  const sanitized: UpdateProgramWorkoutsValidationResult['sanitized'] = {
+    workouts: (input.workouts as Array<Record<string, unknown>>).map((w) => ({
+      dayNumber: w.dayNumber as number,
+      templateId: w.templateId as string,
+      dayLabel: typeof w.dayLabel === 'string' ? w.dayLabel.trim() : undefined,
+    }))
+  };
+
+  return { valid: true, errors: [], sanitized };
+}

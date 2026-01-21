@@ -196,43 +196,54 @@ export const templateExercises = pgTable('template_exercises', {
   templateOrderIdx: index('template_exercises_template_order_idx').on(table.templateId, table.orderIndex)
 }));
 
-// Workout programs - Multi-week training programs
+// Workout programs - Multi-week training programs / regimens
 export const workoutPrograms = pgTable('workout_programs', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id').references(() => users.id).notNull(),
   name: varchar('name', { length: 200 }).notNull(),
   description: text('description'),
-  durationWeeks: integer('duration_weeks').notNull(),
-  
+
+  // Program structure
+  daysPerWeek: integer('days_per_week').notNull().default(1), // 1-7 workouts per cycle
+  durationWeeks: integer('duration_weeks'), // null = indefinite, number = finite cycles
+
+  // User progress tracking
+  isActive: boolean('is_active').default(false).notNull(),
+  currentDayIndex: integer('current_day_index').default(0).notNull(), // 0-based position in rotation
+  timesCompleted: integer('times_completed').default(0).notNull(), // Full cycles finished
+
   // Privacy and sharing
   isPublic: boolean('is_public').default(false),
   privacyLevel: privacyLevelEnum('privacy_level').default('private'),
-  
+
   // AI-generated metadata
   isAiGenerated: boolean('is_ai_generated').default(false),
   aiPrompt: text('ai_prompt'),
-  
+
   // Stats
   downloadCount: integer('download_count').default(0),
   likeCount: integer('like_count').default(0),
-  
+
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull()
 }, (table) => ({
-  userIdIdx: index('workout_programs_user_id_idx').on(table.userId)
+  userIdIdx: index('workout_programs_user_id_idx').on(table.userId),
+  userActiveIdx: index('workout_programs_user_active_idx').on(table.userId, table.isActive)
 }));
 
-// Program weeks - Links templates to specific weeks in a program
+// Program weeks - Links templates to specific days in a program
 export const programWeeks = pgTable('program_weeks', {
   id: uuid('id').defaultRandom().primaryKey(),
   programId: uuid('program_id').references(() => workoutPrograms.id, { onDelete: 'cascade' }).notNull(),
-  weekNumber: integer('week_number').notNull(),
-  dayNumber: integer('day_number').notNull(),
+  weekNumber: integer('week_number').notNull().default(1), // Always 1 for single-week programs
+  dayNumber: integer('day_number').notNull(), // 0-based day index in the rotation
   templateId: uuid('template_id').references(() => workoutTemplates.id).notNull(),
-  
+  dayLabel: varchar('day_label', { length: 50 }), // Optional display name: "Push", "Legs", etc.
+
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, (table) => ({
-  programWeekDayIdx: uniqueIndex('program_week_day_idx').on(table.programId, table.weekNumber, table.dayNumber)
+  programWeekDayIdx: uniqueIndex('program_week_day_idx').on(table.programId, table.weekNumber, table.dayNumber),
+  programIdIdx: index('program_weeks_program_id_idx').on(table.programId)
 }));
 
 // Workouts - Actual workout sessions
@@ -489,7 +500,8 @@ export const workoutTemplatesRelations = relations(workoutTemplates, ({ one, man
   }),
   exercises: many(templateExercises),
   workouts: many(workouts),
-  likes: many(templateLikes)
+  likes: many(templateLikes),
+  programWeeks: many(programWeeks)
 }));
 
 export const workoutsRelations = relations(workouts, ({ one, many }) => ({
@@ -520,6 +532,25 @@ export const setsRelations = relations(sets, ({ one }) => ({
   workoutExercise: one(workoutExercises, {
     fields: [sets.workoutExerciseId],
     references: [workoutExercises.id]
+  })
+}));
+
+export const workoutProgramsRelations = relations(workoutPrograms, ({ one, many }) => ({
+  user: one(users, {
+    fields: [workoutPrograms.userId],
+    references: [users.id]
+  }),
+  programWeeks: many(programWeeks)
+}));
+
+export const programWeeksRelations = relations(programWeeks, ({ one }) => ({
+  program: one(workoutPrograms, {
+    fields: [programWeeks.programId],
+    references: [workoutPrograms.id]
+  }),
+  template: one(workoutTemplates, {
+    fields: [programWeeks.templateId],
+    references: [workoutTemplates.id]
   })
 }));
 

@@ -34,6 +34,11 @@ export const syncOperationEnum = pgEnum('sync_operation', ['create', 'update', '
 export const syncStatusEnum = pgEnum('sync_status', ['pending', 'syncing', 'completed', 'failed']);
 export const conflictResolutionEnum = pgEnum('conflict_resolution', ['client_wins', 'server_wins', 'merged']);
 
+// Exercise classification enums
+export const difficultyLevelEnum = pgEnum('difficulty_level', ['beginner', 'intermediate', 'advanced']);
+export const movementPatternEnum = pgEnum('movement_pattern', ['push', 'pull', 'hinge', 'squat', 'lunge', 'carry', 'rotation', 'core']);
+export const exerciseTypeEnum = pgEnum('exercise_type', ['compound', 'isolation', 'cardio', 'plyometric', 'stretch']);
+
 // Users table - Core user data with sync tracking
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -81,17 +86,65 @@ export const users = pgTable('users', {
 export const exercises = pgTable('exercises', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: varchar('name', { length: 100 }).notNull().unique(),
-  muscleGroups: jsonb('muscle_groups').$type<string[]>().notNull(),
+
+  // Muscle targeting
+  primaryMuscles: jsonb('primary_muscles').$type<string[]>().notNull(),
+  secondaryMuscles: jsonb('secondary_muscles').$type<string[]>().default([]),
+
+  // Classification
   equipment: varchar('equipment', { length: 50 }),
+  difficulty: difficultyLevelEnum('difficulty'),
+  movementPattern: movementPatternEnum('movement_pattern'),
+  exerciseType: exerciseTypeEnum('exercise_type'),
+
+  // Media
   instructions: text('instructions'),
   videoUrl: text('video_url'),
+  thumbnailUrl: text('thumbnail_url'),
+
+  // Analytics
+  totalTimesUsed: integer('total_times_used').default(0),
+  lastUsedAt: timestamp('last_used_at'),
+  popularityScore: numeric('popularity_score', { precision: 10, scale: 2 }).default('0'),
+
+  // Ownership
   isCustom: boolean('is_custom').default(false),
   createdBy: uuid('created_by').references(() => users.id),
-  
+
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull()
 }, (table) => ({
-  nameIdx: index('exercises_name_idx').on(table.name)
+  nameIdx: index('exercises_name_idx').on(table.name),
+  difficultyIdx: index('exercises_difficulty_idx').on(table.difficulty),
+  movementPatternIdx: index('exercises_movement_pattern_idx').on(table.movementPattern),
+  exerciseTypeIdx: index('exercises_exercise_type_idx').on(table.exerciseType),
+  popularityScoreIdx: index('exercises_popularity_score_idx').on(table.popularityScore),
+  isCustomIdx: index('exercises_is_custom_idx').on(table.isCustom)
+}));
+
+// Exercise aliases - for fuzzy search with gym slang and abbreviations
+export const exerciseAliases = pgTable('exercise_aliases', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  exerciseId: uuid('exercise_id').references(() => exercises.id, { onDelete: 'cascade' }).notNull(),
+  alias: varchar('alias', { length: 100 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, (table) => ({
+  exerciseAliasIdx: uniqueIndex('exercise_aliases_exercise_alias_idx').on(table.exerciseId, table.alias),
+  aliasIdx: index('exercise_aliases_alias_idx').on(table.alias)
+}));
+
+// User exercise history - tracks which exercises each user has used for "recently used" sorting
+export const userExerciseHistory = pgTable('user_exercise_history', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  exerciseId: uuid('exercise_id').references(() => exercises.id, { onDelete: 'cascade' }).notNull(),
+  lastUsedAt: timestamp('last_used_at').defaultNow().notNull(),
+  useCount: integer('use_count').default(1).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
+}, (table) => ({
+  userExerciseIdx: uniqueIndex('user_exercise_history_user_exercise_idx').on(table.userId, table.exerciseId),
+  userLastUsedIdx: index('user_exercise_history_user_last_used_idx').on(table.userId, table.lastUsedAt)
 }));
 
 // Workout templates - For saved/AI-generated workout plans
@@ -143,43 +196,54 @@ export const templateExercises = pgTable('template_exercises', {
   templateOrderIdx: index('template_exercises_template_order_idx').on(table.templateId, table.orderIndex)
 }));
 
-// Workout programs - Multi-week training programs
+// Workout programs - Multi-week training programs / regimens
 export const workoutPrograms = pgTable('workout_programs', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id').references(() => users.id).notNull(),
   name: varchar('name', { length: 200 }).notNull(),
   description: text('description'),
-  durationWeeks: integer('duration_weeks').notNull(),
-  
+
+  // Program structure
+  daysPerWeek: integer('days_per_week').notNull().default(1), // 1-7 workouts per cycle
+  durationWeeks: integer('duration_weeks'), // null = indefinite, number = finite cycles
+
+  // User progress tracking
+  isActive: boolean('is_active').default(false).notNull(),
+  currentDayIndex: integer('current_day_index').default(0).notNull(), // 0-based position in rotation
+  timesCompleted: integer('times_completed').default(0).notNull(), // Full cycles finished
+
   // Privacy and sharing
   isPublic: boolean('is_public').default(false),
   privacyLevel: privacyLevelEnum('privacy_level').default('private'),
-  
+
   // AI-generated metadata
   isAiGenerated: boolean('is_ai_generated').default(false),
   aiPrompt: text('ai_prompt'),
-  
+
   // Stats
   downloadCount: integer('download_count').default(0),
   likeCount: integer('like_count').default(0),
-  
+
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull()
 }, (table) => ({
-  userIdIdx: index('workout_programs_user_id_idx').on(table.userId)
+  userIdIdx: index('workout_programs_user_id_idx').on(table.userId),
+  userActiveIdx: index('workout_programs_user_active_idx').on(table.userId, table.isActive)
 }));
 
-// Program weeks - Links templates to specific weeks in a program
+// Program weeks - Links templates to specific days in a program
 export const programWeeks = pgTable('program_weeks', {
   id: uuid('id').defaultRandom().primaryKey(),
   programId: uuid('program_id').references(() => workoutPrograms.id, { onDelete: 'cascade' }).notNull(),
-  weekNumber: integer('week_number').notNull(),
-  dayNumber: integer('day_number').notNull(),
+  weekNumber: integer('week_number').notNull().default(1), // Always 1 for single-week programs
+  dayNumber: integer('day_number').notNull(), // 0-based day index in the rotation
   templateId: uuid('template_id').references(() => workoutTemplates.id).notNull(),
-  
+  dayLabel: varchar('day_label', { length: 50 }), // Optional display name: "Push", "Legs", etc.
+
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, (table) => ({
-  programWeekDayIdx: uniqueIndex('program_week_day_idx').on(table.programId, table.weekNumber, table.dayNumber)
+  programWeekDayIdx: uniqueIndex('program_week_day_idx').on(table.programId, table.weekNumber, table.dayNumber),
+  programIdIdx: index('program_weeks_program_id_idx').on(table.programId)
 }));
 
 // Workouts - Actual workout sessions
@@ -229,7 +293,7 @@ export const workoutExercises = pgTable('workout_exercises', {
   
   // Exercise metadata
   exerciseName: varchar('exercise_name', { length: 100 }).notNull(), // Denormalized for performance
-  muscleGroups: jsonb('muscle_groups').$type<string[]>().notNull(), // Denormalized for performance
+  primaryMuscles: jsonb('primary_muscles').$type<string[]>().notNull(), // Denormalized for performance
   
   // Sync tracking
   lastSyncedAt: timestamp('last_synced_at'),
@@ -399,13 +463,34 @@ export const usersRelations = relations(users, ({ many }) => ({
   following: many(userFollows, { relationName: 'following' }),
   competitions: many(competitions),
   competitionParticipations: many(competitionParticipants),
-  templateLikes: many(templateLikes)
+  templateLikes: many(templateLikes),
+  exerciseHistory: many(userExerciseHistory)
 }));
 
 export const exercisesRelations = relations(exercises, ({ many }) => ({
   templateExercises: many(templateExercises),
   workoutExercises: many(workoutExercises),
-  personalRecords: many(personalRecords)
+  personalRecords: many(personalRecords),
+  aliases: many(exerciseAliases),
+  userHistory: many(userExerciseHistory)
+}));
+
+export const exerciseAliasesRelations = relations(exerciseAliases, ({ one }) => ({
+  exercise: one(exercises, {
+    fields: [exerciseAliases.exerciseId],
+    references: [exercises.id]
+  })
+}));
+
+export const userExerciseHistoryRelations = relations(userExerciseHistory, ({ one }) => ({
+  user: one(users, {
+    fields: [userExerciseHistory.userId],
+    references: [users.id]
+  }),
+  exercise: one(exercises, {
+    fields: [userExerciseHistory.exerciseId],
+    references: [exercises.id]
+  })
 }));
 
 export const workoutTemplatesRelations = relations(workoutTemplates, ({ one, many }) => ({
@@ -415,7 +500,8 @@ export const workoutTemplatesRelations = relations(workoutTemplates, ({ one, man
   }),
   exercises: many(templateExercises),
   workouts: many(workouts),
-  likes: many(templateLikes)
+  likes: many(templateLikes),
+  programWeeks: many(programWeeks)
 }));
 
 export const workoutsRelations = relations(workouts, ({ one, many }) => ({
@@ -446,6 +532,25 @@ export const setsRelations = relations(sets, ({ one }) => ({
   workoutExercise: one(workoutExercises, {
     fields: [sets.workoutExerciseId],
     references: [workoutExercises.id]
+  })
+}));
+
+export const workoutProgramsRelations = relations(workoutPrograms, ({ one, many }) => ({
+  user: one(users, {
+    fields: [workoutPrograms.userId],
+    references: [users.id]
+  }),
+  programWeeks: many(programWeeks)
+}));
+
+export const programWeeksRelations = relations(programWeeks, ({ one }) => ({
+  program: one(workoutPrograms, {
+    fields: [programWeeks.programId],
+    references: [workoutPrograms.id]
+  }),
+  template: one(workoutTemplates, {
+    fields: [programWeeks.templateId],
+    references: [workoutTemplates.id]
   })
 }));
 

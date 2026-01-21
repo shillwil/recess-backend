@@ -1,6 +1,24 @@
 import * as admin from 'firebase-admin';
 import { config } from '../config';
 
+// Helper to safely log Firebase errors without exposing sensitive config
+function logFirebaseError(error: unknown): void {
+  const isDev = config.env === 'development';
+
+  if (isDev) {
+    // In development, log full error for debugging
+    console.error('Failed to initialize Firebase Admin SDK:', error);
+  } else {
+    // In production, log only generic message to avoid leaking config details
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    // Only log error code/message, not full stack or config
+    console.error('Firebase Admin SDK initialization failed:', {
+      message: errorMessage,
+      timestamp: new Date().toISOString()
+    });
+  }
+}
+
 // Only initialize Firebase if the service account is configured
 if (config.firebase.serviceAccount) {
   try {
@@ -20,7 +38,7 @@ if (config.firebase.serviceAccount) {
       console.log('Firebase Admin SDK initialized successfully.');
     }
   } catch (error) {
-    console.error('Failed to initialize Firebase Admin SDK:', error);
+    logFirebaseError(error);
     // If Firebase is critical for an environment, you might want to exit.
     if (config.env !== 'development') {
       process.exit(1);

@@ -1,3 +1,8 @@
+// Exercise classification types
+export type DifficultyLevel = 'beginner' | 'intermediate' | 'advanced';
+export type MovementPattern = 'push' | 'pull' | 'hinge' | 'squat' | 'lunge' | 'carry' | 'rotation' | 'core';
+export type ExerciseType = 'compound' | 'isolation' | 'cardio' | 'plyometric' | 'stretch';
+
 // Core user types
 export interface User {
   id: string;
@@ -29,10 +34,28 @@ export interface User {
 export interface Exercise {
   id: string;
   name: string;
-  muscleGroups: string[];
+
+  // Muscle targeting
+  primaryMuscles: string[];
+  secondaryMuscles?: string[];
+
+  // Classification
   equipment?: string;
+  difficulty?: DifficultyLevel;
+  movementPattern?: MovementPattern;
+  exerciseType?: ExerciseType;
+
+  // Media
   instructions?: string;
   videoUrl?: string;
+  thumbnailUrl?: string;
+
+  // Analytics
+  totalTimesUsed?: number;
+  lastUsedAt?: string;
+  popularityScore?: number;
+
+  // Ownership
   isCustom: boolean;
   createdBy?: string;
   createdAt: string;
@@ -95,7 +118,7 @@ export interface WorkoutExercise {
   exerciseId: string;
   orderIndex: number;
   exerciseName: string; // Denormalized
-  muscleGroups: string[]; // Denormalized
+  primaryMuscles: string[]; // Denormalized
   lastSyncedAt?: string;
   clientUpdatedAt?: string;
   createdAt: string;

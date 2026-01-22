@@ -30,17 +30,11 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
-    // In production, require origin header for browser requests
-    // Mobile apps (Capacitor/Ionic) send origin headers, so this is safe
+    // Allow requests without Origin header (native mobile apps, curl, server-to-server)
+    // Native iOS/Android apps using URLSession/OkHttp don't send Origin headers
+    // Security is provided by Firebase auth middleware, not Origin validation
     if (!origin) {
-      if (isDevelopment) {
-        // Allow no-origin in development only (for curl, Postman, etc.)
-        callback(null, true);
-      } else {
-        // In production, reject requests without origin (prevents direct API abuse)
-        // Note: Mobile apps DO send origin headers (capacitor://localhost, ionic://localhost)
-        callback(new Error('Origin header required'));
-      }
+      callback(null, true);
       return;
     }
     if (allowedOrigins.includes(origin)) {

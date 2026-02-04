@@ -5,14 +5,27 @@ import { config } from './config';
 import { AuthenticatedRequest, firebaseAuthMiddleware } from './middleware/auth';
 import { getOrCreateUser, updateUserProfile } from './services/userService';
 import { SyncService, SyncPayload } from './services/syncService';
+import { db } from './db';
+import { exercises } from './db/schema';
+import { ilike, count, asc } from 'drizzle-orm';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(express.json());
+
+// Native mobile clients (iOS/Android) don't send Origin headers.
+// Set a default so the CORS middleware can process the request normally.
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  if (!req.headers.origin) {
+    req.headers.origin = `${req.protocol}://${req.get('host')}`;
+  }
+  next();
+});
+
 app.use(cors({
-  origin: true, // Allow all origins for testing
+  origin: true,
   credentials: true
 }));
 
@@ -118,6 +131,48 @@ app.post('/api/sync', firebaseAuthMiddleware, async (req: AuthenticatedRequest, 
     res.status(500).json({ 
       success: false,
       message: 'Failed to sync user data',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Search exercises endpoint
+app.get('/api/exercises', firebaseAuthMiddleware, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const perPage = Math.min(parseInt(req.query.per_page as string) || 20, 100);
+    const query = req.query.q as string;
+    const offset = (page - 1) * perPage;
+
+    const whereClause = query ? ilike(exercises.name, `%${query}%`) : undefined;
+
+    const [results, totalCount] = await Promise.all([
+      db.select()
+        .from(exercises)
+        .where(whereClause)
+        .limit(perPage)
+        .offset(offset)
+        .orderBy(asc(exercises.name)),
+      db.select({ count: count() })
+        .from(exercises)
+        .where(whereClause)
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: results,
+      pagination: {
+        page,
+        perPage,
+        total: totalCount[0].count,
+        totalPages: Math.ceil(Number(totalCount[0].count) / perPage)
+      }
+    });
+  } catch (error) {
+    console.error('Error in /api/exercises endpoint:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch exercises',
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }

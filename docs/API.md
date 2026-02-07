@@ -244,27 +244,123 @@ All fields are optional. Only include fields you want to update.
 
 #### `GET /api/exercises`
 
-Search and browse the exercise library with pagination.
+Search and browse the exercise library with pagination. Supports both cursor-based and offset-based (page) pagination.
 
 **Headers:**
 ```
 Authorization: Bearer <firebase_id_token>
 ```
 
+Authentication is optional for basic searches. Required for `recently_used` sort option.
+
 **Query Parameters:**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `q` | string | - | Search query (case-insensitive name match) |
-| `page` | number | 1 | Page number |
-| `per_page` | number | 20 | Results per page (max: 100) |
+| `search` | string | - | Search query (fuzzy name match) |
+| `q` | string | - | Alias for `search` (iOS compatibility) |
+| `limit` | number | 20 | Results per page (max: 100) |
+| `per_page` | number | 20 | Alias for `limit` (iOS compatibility) |
+| `page` | number | - | Page number for offset-based pagination |
+| `cursor` | string | - | Cursor for cursor-based pagination |
+| `muscleGroup` | string | - | Filter by muscle group |
+| `difficulty` | string | - | Filter: `beginner`, `intermediate`, `advanced` |
+| `equipment` | string | - | Filter by equipment type |
+| `movementPattern` | string | - | Filter: `push`, `pull`, `hinge`, `squat`, `lunge`, `carry`, `rotation`, `core` |
+| `exerciseType` | string | - | Filter: `compound`, `isolation`, `cardio`, `plyometric`, `stretch` |
+| `sort` | string | `name` | Sort by: `name`, `popularity`, `recently_used`, `difficulty` |
+| `order` | string | `asc` | Sort order: `asc` or `desc` |
 
-**Example Request:**
+**Pagination Modes:**
+- **Offset-based**: Use `page` and `per_page`/`limit`. Returns `total` and `totalPages`.
+- **Cursor-based**: Use `cursor` and `limit`. Returns `nextCursor` for next page.
+
+**Example Requests:**
 ```
+# iOS-style (offset-based)
 GET /api/exercises?q=Barbell&page=1&per_page=10
+
+# Cursor-based
+GET /api/exercises?search=Barbell&limit=10
+
+# With filters
+GET /api/exercises?muscleGroup=chest&difficulty=intermediate&sort=popularity&order=desc
 ```
 
-**Response (200):**
+**Response (200) - Offset Pagination:**
+```json
+{
+  "success": true,
+  "data": {
+    "exercises": [
+      {
+        "id": "uuid",
+        "name": "Barbell Bench Press",
+        "primaryMuscles": ["chest"],
+        "secondaryMuscles": ["triceps", "shoulders"],
+        "equipment": "barbell",
+        "difficulty": "intermediate",
+        "movementPattern": "push",
+        "exerciseType": "compound",
+        "thumbnailUrl": "https://...",
+        "popularityScore": 95.5
+      }
+    ],
+    "pagination": {
+      "nextCursor": null,
+      "hasMore": true,
+      "page": 1,
+      "perPage": 10,
+      "total": 25,
+      "totalPages": 3
+    },
+    "meta": {
+      "searchApplied": true,
+      "filtersApplied": []
+    }
+  },
+  "correlationId": "req_xxx"
+}
+```
+
+**Response (200) - Cursor Pagination:**
+```json
+{
+  "success": true,
+  "data": {
+    "exercises": [...],
+    "pagination": {
+      "nextCursor": "eyJpZCI6Inh4eCIsInNvcnRWYWx1ZSI6...",
+      "hasMore": true
+    },
+    "meta": {
+      "searchApplied": true,
+      "filtersApplied": ["muscleGroup"]
+    }
+  },
+  "correlationId": "req_xxx"
+}
+```
+
+**Exercise Object:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | uuid | Unique exercise identifier |
+| `name` | string | Exercise name |
+| `primaryMuscles` | string[] | Primary muscles targeted |
+| `secondaryMuscles` | string[] | Secondary muscles involved |
+| `equipment` | string? | Equipment required |
+| `difficulty` | enum? | `beginner`, `intermediate`, `advanced` |
+| `movementPattern` | enum? | Movement pattern category |
+| `exerciseType` | enum? | `compound`, `isolation`, etc. |
+| `thumbnailUrl` | string? | URL to thumbnail image |
+| `popularityScore` | number | Popularity ranking score |
+
+**Legacy Response Format (for backward compatibility):**
+
+The endpoint previously returned a simpler format. Both formats are supported:
+
 ```json
 {
   "success": true,

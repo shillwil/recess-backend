@@ -2,7 +2,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import { config } from 'dotenv';
 import { exercises } from '../src/db/schema';
-import { exerciseSeedData, buildVideoUrl } from '../seed-data/exercises';
+import { exerciseSeedData, buildVideoUrl } from '../src/data/exercises';
 import { sql } from 'drizzle-orm';
 
 // Load env
@@ -61,6 +61,7 @@ async function seedExercises(): Promise<void> {
             movementPattern: exercise.movementPattern,
             exerciseType: exercise.exerciseType,
             videoUrl: videoUrl,
+            isCustom: false,
             updatedAt: sql`now()`,
           },
         })

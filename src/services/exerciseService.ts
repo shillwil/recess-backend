@@ -105,6 +105,7 @@ export async function getExercises(
   const limit = Math.min(query.limit || DEFAULT_LIMIT, MAX_LIMIT);
   const sort = query.sort || 'name';
   const order = query.order || 'asc';
+  const page = query.page; // For offset-based pagination (iOS compatibility)
 
   // Validate recently_used sort requires authentication
   if (sort === 'recently_used' && !userId) {
@@ -130,8 +131,11 @@ export async function getExercises(
     )`);
   }
 
-  // Handle cursor pagination
-  if (query.cursor) {
+  // Use offset-based pagination if page is provided, otherwise use cursor
+  const useOffsetPagination = page !== undefined;
+
+  // Handle cursor pagination (only if not using offset pagination)
+  if (!useOffsetPagination && query.cursor) {
     const cursorData = decodeCursor(query.cursor);
     if (cursorData) {
       const cursorCondition = buildCursorCondition(cursorData, order, userId);
@@ -139,6 +143,16 @@ export async function getExercises(
         conditions.push(cursorCondition);
       }
     }
+  }
+
+  // For offset pagination, get total count
+  let totalCount: number | undefined;
+  if (useOffsetPagination) {
+    const countResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(exercises)
+      .where(and(...conditions));
+    totalCount = Number(countResult[0]?.count || 0);
   }
 
   // Build the query
@@ -157,7 +171,12 @@ export async function getExercises(
     })
     .from(exercises)
     .where(and(...conditions))
-    .limit(limit + 1); // Fetch one extra to determine hasMore
+    .limit(useOffsetPagination ? limit : limit + 1); // Fetch one extra for cursor pagination to determine hasMore
+
+  // Apply offset for page-based pagination
+  if (useOffsetPagination && page && page > 1) {
+    baseQuery = baseQuery.offset((page - 1) * limit) as typeof baseQuery;
+  }
 
   // Apply sorting
   const sortedQuery = applySorting(baseQuery, sort, order, userId);
@@ -165,23 +184,23 @@ export async function getExercises(
   const results: typeof baseQuery extends Promise<infer T> ? T : never = await sortedQuery;
 
   // Determine if there are more results
-  const hasMore = results.length > limit;
-  const exerciseList: {
-    id: string;
-    name: string;
-    primaryMuscles: string[] | null;
-    secondaryMuscles: string[] | null;
-    equipment: string | null;
-    difficulty: 'beginner' | 'intermediate' | 'advanced' | null;
-    movementPattern: 'push' | 'pull' | 'hinge' | 'squat' | 'lunge' | 'carry' | 'rotation' | 'core' | null;
-    exerciseType: 'compound' | 'isolation' | 'cardio' | 'plyometric' | 'stretch' | null;
-    thumbnailUrl: string | null;
-    popularityScore: string | null;
-  }[] = hasMore ? results.slice(0, limit) : results;
+  let hasMore: boolean;
+  let exerciseList: typeof results;
 
-  // Build next cursor
+  if (useOffsetPagination) {
+    // For offset pagination, calculate hasMore from total count
+    const currentPage = page || 1;
+    hasMore = totalCount !== undefined && currentPage * limit < totalCount;
+    exerciseList = results;
+  } else {
+    // For cursor pagination, check if we got more than limit
+    hasMore = results.length > limit;
+    exerciseList = hasMore ? results.slice(0, limit) : results;
+  }
+
+  // Build next cursor (only for cursor-based pagination)
   let nextCursor: string | null = null;
-  if (hasMore && exerciseList.length > 0) {
+  if (!useOffsetPagination && hasMore && exerciseList.length > 0) {
     const lastExercise = exerciseList[exerciseList.length - 1];
 
     // Pre-fetch user exercise history for recently_used sort to avoid N+1 query
@@ -213,12 +232,23 @@ export async function getExercises(
     popularityScore: parseFloat(e.popularityScore?.toString() || '0')
   }));
 
+  // Build pagination response
+  const pagination: ExerciseListResponse['pagination'] = {
+    nextCursor,
+    hasMore
+  };
+
+  // Include offset pagination info when using page-based pagination
+  if (useOffsetPagination && totalCount !== undefined) {
+    pagination.page = page || 1;
+    pagination.perPage = limit;
+    pagination.total = totalCount;
+    pagination.totalPages = Math.ceil(totalCount / limit);
+  }
+
   return {
     exercises: exerciseItems,
-    pagination: {
-      nextCursor,
-      hasMore
-    },
+    pagination,
     meta: {
       searchApplied: !!query.search,
       filtersApplied: getAppliedFilters(query)

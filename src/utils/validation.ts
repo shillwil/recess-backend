@@ -144,6 +144,7 @@ export interface ExerciseQueryValidationResult extends ValidationResult {
   sanitized?: {
     cursor?: string;
     limit?: number;
+    page?: number;  // Offset-based pagination (iOS client compatibility)
     muscleGroup?: string | string[];
     difficulty?: DifficultyLevel | DifficultyLevel[];
     equipment?: string | string[];
@@ -169,8 +170,10 @@ export function validateExerciseListQuery(query: Record<string, unknown>): Exerc
   }
 
   // Limit validation with bounds checking
-  if (query.limit !== undefined) {
-    const limitStr = String(query.limit);
+  // Support both 'limit' and 'per_page' (iOS client compatibility)
+  const limitValue = query.limit ?? query.per_page;
+  if (limitValue !== undefined) {
+    const limitStr = String(limitValue);
     const limit = parseInt(limitStr, 10);
     if (isNaN(limit)) {
       errors.push('limit must be a valid integer');
@@ -180,6 +183,20 @@ export function validateExerciseListQuery(query: Record<string, unknown>): Exerc
       errors.push('limit cannot exceed 100');
     } else {
       sanitized.limit = limit;
+    }
+  }
+
+  // Page validation for offset-based pagination (iOS client compatibility)
+  // When page is provided, cursor is ignored and offset pagination is used
+  if (query.page !== undefined) {
+    const pageStr = String(query.page);
+    const page = parseInt(pageStr, 10);
+    if (isNaN(page)) {
+      errors.push('page must be a valid integer');
+    } else if (page < 1) {
+      errors.push('page must be at least 1');
+    } else {
+      sanitized.page = page;
     }
   }
 
@@ -274,11 +291,13 @@ export function validateExerciseListQuery(query: Record<string, unknown>): Exerc
   }
 
   // Search validation
-  if (query.search !== undefined) {
-    if (typeof query.search !== 'string') {
+  // Support both 'search' and 'q' (iOS client compatibility)
+  const searchValue = query.search ?? query.q;
+  if (searchValue !== undefined) {
+    if (typeof searchValue !== 'string') {
       errors.push('search must be a string');
     } else {
-      const trimmed = query.search.trim();
+      const trimmed = searchValue.trim();
       if (trimmed.length > 100) {
         errors.push('search query cannot exceed 100 characters');
       } else if (trimmed.length > 0) {

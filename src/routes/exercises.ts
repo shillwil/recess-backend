@@ -50,6 +50,7 @@ router.get('/', optionalAuthMiddleware, async (req: AuthenticatedRequest, res: R
     const query: ExerciseListQuery = {
       cursor: validation.sanitized?.cursor,
       limit: validation.sanitized?.limit,
+      page: validation.sanitized?.page,  // Offset-based pagination (iOS compatibility)
       muscleGroup: validation.sanitized?.muscleGroup,
       difficulty: validation.sanitized?.difficulty,
       equipment: validation.sanitized?.equipment,

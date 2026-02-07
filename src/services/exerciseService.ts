@@ -113,7 +113,8 @@ export async function getExercises(
   }
 
   // Build conditions array
-  const conditions: SQL[] = [eq(exercises.isCustom, false)];
+  // Use IS NOT TRUE instead of = false to also match NULL values (SQL NULL equality trap)
+  const conditions: SQL[] = [sql`${exercises.isCustom} IS NOT TRUE`];
 
   // Add filter conditions
   addFilterConditions(conditions, query);
@@ -648,7 +649,7 @@ async function getMuscleGroupCounts(): Promise<FilterOption[]> {
       sql`, `
     )}]::text[]) as muscle
     LEFT JOIN exercises e ON (
-      e.is_custom = false
+      e.is_custom IS NOT TRUE
       AND (e.primary_muscles ? muscle OR e.secondary_muscles ? muscle)
     )
     GROUP BY muscle
@@ -678,7 +679,7 @@ async function getDifficultyCounts(): Promise<FilterOption[]> {
       count: sql<number>`count(*)`
     })
     .from(exercises)
-    .where(eq(exercises.isCustom, false))
+    .where(sql`${exercises.isCustom} IS NOT TRUE`)
     .groupBy(exercises.difficulty);
 
   const countMap = new Map(
@@ -699,7 +700,7 @@ async function getEquipmentCounts(): Promise<FilterOption[]> {
       count: sql<number>`count(*)`
     })
     .from(exercises)
-    .where(and(eq(exercises.isCustom, false), isNotNull(exercises.equipment)))
+    .where(and(sql`${exercises.isCustom} IS NOT TRUE`, isNotNull(exercises.equipment)))
     .groupBy(exercises.equipment);
 
   return counts
@@ -720,7 +721,7 @@ async function getMovementPatternCounts(): Promise<FilterOption[]> {
       count: sql<number>`count(*)`
     })
     .from(exercises)
-    .where(eq(exercises.isCustom, false))
+    .where(sql`${exercises.isCustom} IS NOT TRUE`)
     .groupBy(exercises.movementPattern);
 
   const countMap = new Map(
@@ -743,7 +744,7 @@ async function getExerciseTypeCounts(): Promise<FilterOption[]> {
       count: sql<number>`count(*)`
     })
     .from(exercises)
-    .where(eq(exercises.isCustom, false))
+    .where(sql`${exercises.isCustom} IS NOT TRUE`)
     .groupBy(exercises.exerciseType);
 
   const countMap = new Map(

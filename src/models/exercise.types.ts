@@ -3,9 +3,10 @@ import { DifficultyLevel, MovementPattern, ExerciseType } from './index';
 // ============ Query Parameters ============
 
 export interface ExerciseListQuery {
-  // Pagination
+  // Pagination (cursor-based is preferred, page is for iOS compatibility)
   cursor?: string;
   limit?: number; // Default: 20, Max: 100
+  page?: number;  // Offset-based pagination (iOS client compatibility)
 
   // Filters
   muscleGroup?: string | string[]; // Filter by primary or secondary muscles
@@ -54,6 +55,11 @@ export interface ExerciseDetail extends ExerciseListItem {
 export interface PaginationInfo {
   nextCursor: string | null;
   hasMore: boolean;
+  // Offset-based pagination info (included when page is used)
+  page?: number;
+  perPage?: number;
+  total?: number;
+  totalPages?: number;
 }
 
 export interface ExerciseListResponse {

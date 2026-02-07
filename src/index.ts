@@ -30,8 +30,9 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
-    // Allow requests without origin header (native iOS/Android apps using URLSession/OkHttp)
-    // These clients don't send Origin headers - that's a browser-only concept
+    // Allow requests without Origin header (native mobile apps, curl, server-to-server)
+    // Native iOS/Android apps using URLSession/OkHttp don't send Origin headers
+    // Security is provided by Firebase auth middleware, not Origin validation
     if (!origin) {
       callback(null, true);
       return;

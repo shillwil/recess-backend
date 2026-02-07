@@ -31,19 +31,32 @@
 
 ```
 src/
-├── index.ts              # Express app entry point, route definitions
+├── index.ts              # Express app entry point, core routes
 ├── config/               # Environment configuration & validation
 ├── db/
 │   ├── index.ts          # Database connection (direct & proxy modes)
 │   └── schema.ts         # Drizzle ORM schema (25+ tables)
 ├── middleware/
-│   └── auth.ts           # Firebase JWT verification middleware
+│   ├── auth.ts           # Firebase JWT verification middleware
+│   └── optionalAuth.ts   # Optional auth for public endpoints
+├── routes/
+│   ├── exercises.ts      # Exercise library endpoints
+│   ├── templates.ts      # Workout template endpoints
+│   └── programs.ts       # Training program endpoints
 ├── services/
 │   ├── firebase.ts       # Firebase Admin SDK initialization
 │   ├── userService.ts    # User CRUD operations
-│   └── syncService.ts    # Multi-device sync & conflict resolution
+│   ├── syncService.ts    # Multi-device sync & conflict resolution
+│   ├── exerciseService.ts # Exercise library operations
+│   └── syncHelpers.ts    # Sync data normalization utilities
+├── utils/
+│   ├── validation.ts     # Input validation & sanitization
+│   └── errorResponse.ts  # Standardized error handling
 └── models/
-    └── index.ts          # TypeScript interfaces
+    ├── index.ts          # Core TypeScript interfaces
+    └── exercise.types.ts # Exercise-specific types
+docs/
+└── API.md                # Full API documentation
 ```
 
 ## Architecture
@@ -87,12 +100,21 @@ Routes (index.ts) → Middleware (auth) → Services → Database (Drizzle)
 
 **API Response Patterns:**
 ```typescript
-// Success
-res.json({ user: userData });
+// Success response
+res.json({
+  success: true,
+  data: { ... },
+  correlationId: req.correlationId
+});
 
-// Error
-res.status(400).json({ error: 'Descriptive error message' });
+// Error response (use sendErrorResponse utility)
+import { sendErrorResponse } from '../utils/errorResponse';
+sendErrorResponse(res, 400, 'Descriptive error message', error, correlationId, {
+  validationErrors: ['field1 is required']
+});
 ```
+
+**Correlation IDs:** Every request gets a unique `correlationId` for tracing. Include it in all responses and logs.
 
 ## Testing Requirements
 
@@ -199,7 +221,17 @@ DATABASE_URL="postgresql://postgres:password@localhost:5432/recess_dev" npm run 
 | POST | `/api/auth/login` | Firebase Token | Login/register user |
 | GET | `/api/me` | Yes | Get current user profile |
 | PUT | `/api/me` | Yes | Update user profile |
+| GET | `/api/exercises` | Optional | Search/browse exercise library |
+| GET | `/api/exercises/:id` | No | Get exercise details |
+| GET | `/api/exercises/filters` | No | Get filter metadata with counts |
+| POST | `/api/exercises/:id/record-usage` | Yes | Record exercise usage for personalization |
+| GET | `/api/templates` | Yes | List user's workout templates |
+| POST | `/api/templates` | Yes | Create workout template |
+| GET | `/api/programs` | Yes | List user's programs |
+| POST | `/api/programs` | Yes | Create program |
 | POST | `/api/sync` | Yes | Sync workout data from mobile |
+
+See `docs/API.md` for complete endpoint documentation.
 
 ## Database Schema Overview
 
@@ -234,6 +266,44 @@ The sync service (`src/services/syncService.ts`) handles bidirectional data sync
 - Preserve `clientId` mapping behavior
 - Maintain backward compatibility with existing iOS clients
 - Test with multiple devices scenario
+
+## iOS Client Compatibility
+
+The backend is designed to work seamlessly with native iOS apps using URLSession. Key compatibility features:
+
+### CORS Configuration
+- Native iOS apps (URLSession/OkHttp) don't send `Origin` headers - this is allowed
+- Capacitor/Ionic hybrid apps send `capacitor://localhost` - this is allowed
+- Browser requests require valid Origin headers in production
+
+### Query Parameter Aliases
+The exercises endpoint accepts iOS-style parameters alongside modern ones:
+- `q` → alias for `search`
+- `per_page` → alias for `limit`
+- `page` → enables offset-based pagination (instead of cursor)
+
+### Sync Field Aliases
+The sync service normalizes legacy field names automatically:
+- `muscleGroups` → `primaryMuscles`
+- `exerciseTypeMuscleGroups` → `exerciseTypePrimaryMuscles`
+
+**When adding new API features:**
+- Consider if iOS clients use different parameter naming conventions
+- Prefer additive changes to responses (new fields, not modified fields)
+- Document compatibility considerations in `docs/API.md`
+
+## Rate Limiting
+
+The API implements tiered rate limiting to prevent abuse:
+
+| Limiter | Window | Production Limit | Development Limit |
+|---------|--------|------------------|-------------------|
+| General | 15 min | 100 requests | 1000 requests |
+| Auth | 15 min | 10 attempts | 100 attempts |
+| Sync | 1 min | 10 syncs | 100 syncs |
+| Profile | 1 hour | 10 updates | 100 updates |
+
+Rate limit responses return HTTP 429 with a standardized error body.
 
 ## Environment Configuration
 

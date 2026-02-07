@@ -656,6 +656,53 @@ The server uses **timestamp-based conflict resolution**:
 
 ---
 
+## Backwards Compatibility
+
+The API maintains backwards compatibility with older iOS clients through several mechanisms:
+
+### Query Parameter Aliases
+
+The exercises endpoint accepts both modern and legacy parameter names:
+
+| Modern | Legacy (iOS) | Description |
+|--------|--------------|-------------|
+| `search` | `q` | Search query |
+| `limit` | `per_page` | Results per page |
+
+Both parameters work identically. If both are provided, the modern parameter takes precedence.
+
+### Dual Pagination Support
+
+The API supports two pagination strategies simultaneously:
+
+| Mode | Parameters | Best For |
+|------|------------|----------|
+| **Offset-based** | `page`, `per_page`/`limit` | iOS clients, simple UI with page numbers |
+| **Cursor-based** | `cursor`, `limit` | Infinite scroll, real-time updates |
+
+**Choosing a mode:**
+- If `page` is provided, offset pagination is used (cursor is ignored)
+- If only `cursor`/`limit` are provided, cursor pagination is used
+- Offset pagination includes `total`, `totalPages` in response
+- Cursor pagination is more efficient for large datasets
+
+### Sync Data Field Aliases
+
+The sync endpoint accepts both field naming conventions:
+
+| Modern | Legacy | Context |
+|--------|--------|---------|
+| `primaryMuscles` | `muscleGroups` | Exercise data in sync payloads |
+| `exerciseTypePrimaryMuscles` | `exerciseTypeMuscleGroups` | Set data in sync payloads |
+
+The backend normalizes these automatically - send whichever your client version uses.
+
+### Response Format Stability
+
+Response formats are additive-only. New fields may be added, but existing fields retain their type and meaning. Clients should ignore unknown fields for forward compatibility.
+
+---
+
 ## iOS Client Implementation Notes
 
 ### Native App Considerations

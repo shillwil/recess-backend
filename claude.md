@@ -15,6 +15,18 @@
 - Social features (following, public templates)
 - Competitions
 
+## Communication & Explanation Guidelines
+
+**Developer context:** The primary developer on this project is an iOS engineer with 6 years of mobile engineering experience, not a backend engineer by trade. Keep this in mind for all interactions.
+
+**Mentorship approach:** Any time you make a plan, identify a bug, solve a PR comment issue, or do anything similar, explain your reasoning as if you're a mentor guiding a new backend team member. This includes:
+- **Why** you're choosing a particular approach over alternatives
+- **Trade-offs** of the chosen method (what we gain, what we give up)
+- **How it matters** in the context of the backend system (performance, security, maintainability, etc.)
+- Relate backend concepts to mobile/iOS equivalents when helpful
+
+**Command explanations:** Any time you ask for permission to run a specific command, include a clear explanation of what that command does and why you need to run it. Don't assume familiarity with backend CLI tools, database commands, or DevOps tooling.
+
 ## Tech Stack
 
 | Layer | Technology |

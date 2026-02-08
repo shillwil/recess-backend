@@ -2,7 +2,11 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import { config } from 'dotenv';
 import { exercises } from '../src/db/schema';
-import { exerciseSeedData, buildVideoUrl } from '../src/data/exercises';
+import {
+  exerciseSeedData,
+  buildExerciseInsertValues,
+  buildExerciseConflictSet,
+} from '../src/data/exercises';
 import { sql } from 'drizzle-orm';
 
 // Load env
@@ -19,8 +23,8 @@ function getDirectDbUrl(): string {
 }
 
 async function seedExercises(): Promise<void> {
-  console.log('🌱 Starting exercise seeding...');
-  console.log(`📦 Preparing to seed ${exerciseSeedData.length} exercises`);
+  console.log('Starting exercise seeding...');
+  console.log(`Preparing to seed ${exerciseSeedData.length} exercises`);
 
   const pool = new Pool({
     connectionString: getDirectDbUrl(),
@@ -29,59 +33,31 @@ async function seedExercises(): Promise<void> {
   const db = drizzle(pool);
 
   try {
-    let inserted = 0;
-    let updated = 0;
+    let processed = 0;
 
     for (const exercise of exerciseSeedData) {
-      const videoUrl = buildVideoUrl(exercise.videoFilename);
-
-      const result = await db
+      await db
         .insert(exercises)
-        .values({
-          name: exercise.name,
-          primaryMuscles: exercise.primaryMuscles,
-          secondaryMuscles: exercise.secondaryMuscles ?? [],
-          equipment: exercise.equipment,
-          difficulty: exercise.difficulty,
-          movementPattern: exercise.movementPattern,
-          exerciseType: exercise.exerciseType,
-          videoUrl: videoUrl,
-          thumbnailUrl: null,
-          instructions: null,
-          isCustom: false,
-          createdBy: null,
-        })
+        .values(buildExerciseInsertValues(exercise))
         .onConflictDoUpdate({
           target: exercises.name,
-          set: {
-            primaryMuscles: exercise.primaryMuscles,
-            secondaryMuscles: exercise.secondaryMuscles ?? [],
-            equipment: exercise.equipment,
-            difficulty: exercise.difficulty,
-            movementPattern: exercise.movementPattern,
-            exerciseType: exercise.exerciseType,
-            videoUrl: videoUrl,
-            isCustom: false,
-            updatedAt: sql`now()`,
-          },
+          set: buildExerciseConflictSet(exercise),
         })
         .returning({ id: exercises.id, name: exercises.name });
 
-      // Check if this was an insert or update by checking if createdAt === updatedAt
-      // For simplicity, we'll count all as processed
-      console.log(`  ✓ ${exercise.name}`);
-      inserted++;
+      console.log(`  ${exercise.name}`);
+      processed++;
     }
 
-    console.log(`\n✅ Seeding complete!`);
-    console.log(`   Total exercises processed: ${inserted}`);
+    console.log(`\nSeeding complete!`);
+    console.log(`   Total exercises processed: ${processed}`);
 
     // Verify count
     const countResult = await db.select({ count: sql<number>`count(*)` }).from(exercises).where(sql`video_url IS NOT NULL`);
     console.log(`   Exercises with videos in DB: ${countResult[0].count}`);
 
   } catch (error) {
-    console.error('❌ Seeding failed:', error);
+    console.error('Seeding failed:', error);
     process.exit(1);
   } finally {
     await pool.end();

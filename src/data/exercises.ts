@@ -26,6 +26,38 @@ export interface ExerciseSeedData {
   exerciseType: ExerciseType;
 }
 
+/** Values for db.insert(exercises).values(...) */
+export function buildExerciseInsertValues(exercise: ExerciseSeedData) {
+  return {
+    name: exercise.name,
+    primaryMuscles: exercise.primaryMuscles,
+    secondaryMuscles: exercise.secondaryMuscles ?? [],
+    equipment: exercise.equipment,
+    difficulty: exercise.difficulty,
+    movementPattern: exercise.movementPattern,
+    exerciseType: exercise.exerciseType,
+    videoUrl: buildVideoUrl(exercise.videoFilename),
+    thumbnailUrl: null,
+    instructions: null,
+    isCustom: false as const,
+    createdBy: null,
+  };
+}
+
+/** Values for .onConflictDoUpdate({ set: ... }) — no updatedAt to avoid timestamp corruption */
+export function buildExerciseConflictSet(exercise: ExerciseSeedData) {
+  return {
+    primaryMuscles: exercise.primaryMuscles,
+    secondaryMuscles: exercise.secondaryMuscles ?? [],
+    equipment: exercise.equipment,
+    difficulty: exercise.difficulty,
+    movementPattern: exercise.movementPattern,
+    exerciseType: exercise.exerciseType,
+    videoUrl: buildVideoUrl(exercise.videoFilename),
+    isCustom: false as const,
+  };
+}
+
 export const exerciseSeedData: ExerciseSeedData[] = [
   // === CHEST EXERCISES ===
   {

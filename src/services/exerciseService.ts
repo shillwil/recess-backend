@@ -34,7 +34,7 @@ import {
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
-const SIMILARITY_THRESHOLD = 0.3;
+const WORD_SIMILARITY_THRESHOLD = 0.3;
 
 // Difficulty order for sorting
 const DIFFICULTY_ORDER: Record<string, number> = {
@@ -118,15 +118,25 @@ export async function getExercises(
   // Add filter conditions
   addFilterConditions(conditions, query);
 
-  // Handle search
+  // Handle search: combine ILIKE for prefix/substring matching with
+  // word_similarity() for fuzzy matching of misspelled terms.
+  // similarity() compared entire strings and failed on short/partial queries
+  // like "Sm" or "Smith" against "Smith Machine". word_similarity() finds the
+  // best match between the query and any substring of the target, and ILIKE
+  // catches straightforward prefix/contains matches.
   if (query.search && query.search.trim()) {
     const searchTerm = query.search.trim();
+    const ilikePattern = `%${searchTerm}%`;
     conditions.push(sql`(
-      similarity(${exercises.name}, ${searchTerm}) > ${SIMILARITY_THRESHOLD}
+      ${exercises.name} ILIKE ${ilikePattern}
+      OR word_similarity(${searchTerm}, ${exercises.name}) > ${WORD_SIMILARITY_THRESHOLD}
       OR EXISTS (
         SELECT 1 FROM exercise_aliases ea
         WHERE ea.exercise_id = ${exercises.id}
-        AND similarity(ea.alias, ${searchTerm}) > ${SIMILARITY_THRESHOLD}
+        AND (
+          ea.alias ILIKE ${ilikePattern}
+          OR word_similarity(${searchTerm}, ea.alias) > ${WORD_SIMILARITY_THRESHOLD}
+        )
       )
     )`);
   }

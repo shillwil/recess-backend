@@ -118,27 +118,43 @@ export async function getExercises(
   // Add filter conditions
   addFilterConditions(conditions, query);
 
-  // Handle search: combine ILIKE for prefix/substring matching with
-  // word_similarity() for fuzzy matching of misspelled terms.
-  // similarity() compared entire strings and failed on short/partial queries
-  // like "Sm" or "Smith" against "Smith Machine". word_similarity() finds the
-  // best match between the query and any substring of the target, and ILIKE
-  // catches straightforward prefix/contains matches.
+  // Handle search using word_similarity() for fuzzy matching with an ILIKE
+  // prefix fallback for short queries. word_similarity() finds the best match
+  // between the search term and any substring of the target, handling both
+  // partial ("Smith" -> "Smith Machine") and misspelled queries well.
+  // For very short terms (< 3 chars), trigram matching can't produce useful
+  // scores, so we fall back to a prefix ILIKE match instead.
   if (query.search && query.search.trim()) {
     const searchTerm = query.search.trim();
-    const ilikePattern = `%${searchTerm}%`;
-    conditions.push(sql`(
-      ${exercises.name} ILIKE ${ilikePattern}
-      OR word_similarity(${searchTerm}, ${exercises.name}) > ${WORD_SIMILARITY_THRESHOLD}
-      OR EXISTS (
-        SELECT 1 FROM exercise_aliases ea
-        WHERE ea.exercise_id = ${exercises.id}
-        AND (
-          ea.alias ILIKE ${ilikePattern}
-          OR word_similarity(${searchTerm}, ea.alias) > ${WORD_SIMILARITY_THRESHOLD}
+    const escapedTerm = searchTerm.replace(/[%_\\]/g, '\\$&');
+
+    if (searchTerm.length < 3) {
+      // Too short for trigrams — use prefix match only
+      const prefixPattern = `${escapedTerm}%`;
+      conditions.push(sql`(
+        ${exercises.name} ILIKE ${prefixPattern}
+        OR EXISTS (
+          SELECT 1 FROM exercise_aliases ea
+          WHERE ea.exercise_id = ${exercises.id}
+          AND ea.alias ILIKE ${prefixPattern}
         )
-      )
-    )`);
+      )`);
+    } else {
+      // Use word_similarity for fuzzy + prefix ILIKE as a safety net
+      const prefixPattern = `${escapedTerm}%`;
+      conditions.push(sql`(
+        ${exercises.name} ILIKE ${prefixPattern}
+        OR word_similarity(${searchTerm}, ${exercises.name}) > ${WORD_SIMILARITY_THRESHOLD}
+        OR EXISTS (
+          SELECT 1 FROM exercise_aliases ea
+          WHERE ea.exercise_id = ${exercises.id}
+          AND (
+            ea.alias ILIKE ${prefixPattern}
+            OR word_similarity(${searchTerm}, ea.alias) > ${WORD_SIMILARITY_THRESHOLD}
+          )
+        )
+      )`);
+    }
   }
 
   // Use offset-based pagination if page is provided, otherwise use cursor

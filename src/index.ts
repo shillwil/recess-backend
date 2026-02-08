@@ -9,6 +9,7 @@ import { SyncService, SyncPayload } from './services/syncService';
 import exerciseRoutes from './routes/exercises';
 import templateRoutes from './routes/templates';
 import programRoutes from './routes/programs';
+import { seedExercisesOnStartup } from './services/exerciseSeedService';
 import { validateUserProfileUpdate, validateSyncPayload } from './utils/validation';
 import {
   generateCorrelationId,
@@ -266,6 +267,14 @@ app.use((req: Request, res: Response) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT} in ${config.env} mode`);
+// Seed library exercises on startup, then start listening
+seedExercisesOnStartup().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Server is running on http://localhost:${PORT} in ${config.env} mode`);
+  });
+}).catch((err) => {
+  console.error('Failed during startup seed, starting server anyway:', err);
+  app.listen(PORT, () => {
+    console.log(`Server is running on http://localhost:${PORT} in ${config.env} mode`);
+  });
 });

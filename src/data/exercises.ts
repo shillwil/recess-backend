@@ -1,9 +1,8 @@
 // R2 Configuration - Change these if switching to a custom domain
 export const R2_BASE_URL = 'https://pub-383015826a924878acc220637944c283.r2.dev';
-export const BUCKET_PATH = 'recess-fitness-videos';
 
 export function buildVideoUrl(filename: string): string {
-  return `${R2_BASE_URL}/${BUCKET_PATH}/${encodeURIComponent(filename)}`;
+  return `${R2_BASE_URL}/${encodeURIComponent(filename)}`;
 }
 
 // Valid muscle groups from schema enum
@@ -25,6 +24,38 @@ export interface ExerciseSeedData {
   difficulty: DifficultyLevel;
   movementPattern: MovementPattern;
   exerciseType: ExerciseType;
+}
+
+/** Values for db.insert(exercises).values(...) */
+export function buildExerciseInsertValues(exercise: ExerciseSeedData) {
+  return {
+    name: exercise.name,
+    primaryMuscles: exercise.primaryMuscles,
+    secondaryMuscles: exercise.secondaryMuscles ?? [],
+    equipment: exercise.equipment,
+    difficulty: exercise.difficulty,
+    movementPattern: exercise.movementPattern,
+    exerciseType: exercise.exerciseType,
+    videoUrl: buildVideoUrl(exercise.videoFilename),
+    thumbnailUrl: null,
+    instructions: null,
+    isCustom: false as const,
+    createdBy: null,
+  };
+}
+
+/** Values for .onConflictDoUpdate({ set: ... }) — no updatedAt to avoid timestamp corruption */
+export function buildExerciseConflictSet(exercise: ExerciseSeedData) {
+  return {
+    primaryMuscles: exercise.primaryMuscles,
+    secondaryMuscles: exercise.secondaryMuscles ?? [],
+    equipment: exercise.equipment,
+    difficulty: exercise.difficulty,
+    movementPattern: exercise.movementPattern,
+    exerciseType: exercise.exerciseType,
+    videoUrl: buildVideoUrl(exercise.videoFilename),
+    isCustom: false as const,
+  };
 }
 
 export const exerciseSeedData: ExerciseSeedData[] = [

@@ -1,7 +1,6 @@
 import { db } from '../db';
 import {
   exercises,
-  exerciseAliases,
   userExerciseHistory,
   difficultyLevelEnum,
   movementPatternEnum,
@@ -127,10 +126,10 @@ export async function getExercises(
   if (query.search && query.search.trim()) {
     const searchTerm = query.search.trim();
     const escapedTerm = searchTerm.replace(/[%_\\]/g, '\\$&');
+    const prefixPattern = `${escapedTerm}%`;
 
     if (searchTerm.length < 3) {
       // Too short for trigrams — use prefix match only
-      const prefixPattern = `${escapedTerm}%`;
       conditions.push(sql`(
         ${exercises.name} ILIKE ${prefixPattern}
         OR EXISTS (
@@ -141,7 +140,6 @@ export async function getExercises(
       )`);
     } else {
       // Use word_similarity for fuzzy + prefix ILIKE as a safety net
-      const prefixPattern = `${escapedTerm}%`;
       conditions.push(sql`(
         ${exercises.name} ILIKE ${prefixPattern}
         OR word_similarity(${searchTerm}, ${exercises.name}) > ${WORD_SIMILARITY_THRESHOLD}

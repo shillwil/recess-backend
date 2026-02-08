@@ -41,6 +41,7 @@ export interface ExerciseListItem {
   movementPattern: MovementPattern | null;
   exerciseType: ExerciseType | null;
   thumbnailUrl: string | null;
+  videoUrl: string | null;
   popularityScore: number;
 }
 

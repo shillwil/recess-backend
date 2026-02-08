@@ -63,6 +63,7 @@ export interface TemplateExerciseDetail {
     primaryMuscles: string[];
     equipment: string | null;
     thumbnailUrl: string | null;
+    videoUrl: string | null;
   };
 }
 

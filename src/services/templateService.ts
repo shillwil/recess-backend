@@ -261,7 +261,8 @@ export async function getTemplateById(
         name: exercises.name,
         primaryMuscles: exercises.primaryMuscles,
         equipment: exercises.equipment,
-        thumbnailUrl: exercises.thumbnailUrl
+        thumbnailUrl: exercises.thumbnailUrl,
+        videoUrl: exercises.videoUrl
       }
     })
     .from(templateExercises)
@@ -284,7 +285,8 @@ export async function getTemplateById(
       name: te.exercise.name,
       primaryMuscles: (te.exercise.primaryMuscles as string[]) || [],
       equipment: te.exercise.equipment,
-      thumbnailUrl: te.exercise.thumbnailUrl
+      thumbnailUrl: te.exercise.thumbnailUrl,
+      videoUrl: te.exercise.videoUrl
     }
   }));
 

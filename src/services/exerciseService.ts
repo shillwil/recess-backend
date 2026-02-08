@@ -1,7 +1,6 @@
 import { db } from '../db';
 import {
   exercises,
-  exerciseAliases,
   userExerciseHistory,
   difficultyLevelEnum,
   movementPatternEnum,
@@ -34,7 +33,7 @@ import {
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
-const SIMILARITY_THRESHOLD = 0.3;
+const WORD_SIMILARITY_THRESHOLD = 0.3;
 
 // Difficulty order for sorting
 const DIFFICULTY_ORDER: Record<string, number> = {
@@ -118,17 +117,42 @@ export async function getExercises(
   // Add filter conditions
   addFilterConditions(conditions, query);
 
-  // Handle search
+  // Handle search using word_similarity() for fuzzy matching with an ILIKE
+  // prefix fallback for short queries. word_similarity() finds the best match
+  // between the search term and any substring of the target, handling both
+  // partial ("Smith" -> "Smith Machine") and misspelled queries well.
+  // For very short terms (< 3 chars), trigram matching can't produce useful
+  // scores, so we fall back to a prefix ILIKE match instead.
   if (query.search && query.search.trim()) {
     const searchTerm = query.search.trim();
-    conditions.push(sql`(
-      similarity(${exercises.name}, ${searchTerm}) > ${SIMILARITY_THRESHOLD}
-      OR EXISTS (
-        SELECT 1 FROM exercise_aliases ea
-        WHERE ea.exercise_id = ${exercises.id}
-        AND similarity(ea.alias, ${searchTerm}) > ${SIMILARITY_THRESHOLD}
-      )
-    )`);
+    const escapedTerm = searchTerm.replace(/[%_\\]/g, '\\$&');
+    const prefixPattern = `${escapedTerm}%`;
+
+    if (searchTerm.length < 3) {
+      // Too short for trigrams — use prefix match only
+      conditions.push(sql`(
+        ${exercises.name} ILIKE ${prefixPattern}
+        OR EXISTS (
+          SELECT 1 FROM exercise_aliases ea
+          WHERE ea.exercise_id = ${exercises.id}
+          AND ea.alias ILIKE ${prefixPattern}
+        )
+      )`);
+    } else {
+      // Use word_similarity for fuzzy + prefix ILIKE as a safety net
+      conditions.push(sql`(
+        ${exercises.name} ILIKE ${prefixPattern}
+        OR word_similarity(${searchTerm}, ${exercises.name}) > ${WORD_SIMILARITY_THRESHOLD}
+        OR EXISTS (
+          SELECT 1 FROM exercise_aliases ea
+          WHERE ea.exercise_id = ${exercises.id}
+          AND (
+            ea.alias ILIKE ${prefixPattern}
+            OR word_similarity(${searchTerm}, ea.alias) > ${WORD_SIMILARITY_THRESHOLD}
+          )
+        )
+      )`);
+    }
   }
 
   // Use offset-based pagination if page is provided, otherwise use cursor

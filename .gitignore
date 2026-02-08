@@ -197,3 +197,6 @@ COMMIT_STRATEGY.md
 
 # pg dumb files
 qa_backup.dump
+
+# Legacy seed-data (canonical source is src/data/)
+seed-data/

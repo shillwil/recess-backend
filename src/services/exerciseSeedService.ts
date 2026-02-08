@@ -22,10 +22,9 @@ export async function seedExercisesOnStartup(): Promise<void> {
 
     const existingCount = Number(countResult[0]?.count || 0);
 
-    // If we already have all expected exercises, just verify video URLs are correct
+    // If we already have all expected exercises, skip seeding entirely
     if (existingCount >= exerciseSeedData.length) {
-      console.log(`[seed] ${existingCount} library exercises already present, updating video URLs...`);
-      await updateVideoUrls();
+      console.log(`[seed] ${existingCount} library exercises already present. Skipping seed.`);
       return;
     }
 
@@ -73,28 +72,5 @@ export async function seedExercisesOnStartup(): Promise<void> {
   } catch (error) {
     // Log but don't crash the server - exercises might already exist
     console.error('[seed] Failed to seed exercises:', error);
-  }
-}
-
-/**
- * Update video URLs for all seeded exercises.
- * Handles the case where the R2 URL format changed.
- */
-async function updateVideoUrls(): Promise<void> {
-  try {
-    for (const exercise of exerciseSeedData) {
-      const videoUrl = buildVideoUrl(exercise.videoFilename);
-
-      await db
-        .update(exercises)
-        .set({
-          videoUrl: videoUrl,
-          updatedAt: sql`now()`,
-        })
-        .where(eq(exercises.name, exercise.name));
-    }
-    console.log(`[seed] Video URLs updated for ${exerciseSeedData.length} exercises.`);
-  } catch (error) {
-    console.error('[seed] Failed to update video URLs:', error);
   }
 }

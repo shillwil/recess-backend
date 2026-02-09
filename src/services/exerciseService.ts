@@ -191,6 +191,7 @@ export async function getExercises(
       movementPattern: exercises.movementPattern,
       exerciseType: exercises.exerciseType,
       thumbnailUrl: exercises.thumbnailUrl,
+      videoUrl: exercises.videoUrl,
       popularityScore: exercises.popularityScore
     })
     .from(exercises)
@@ -253,6 +254,7 @@ export async function getExercises(
     movementPattern: e.movementPattern,
     exerciseType: e.exerciseType,
     thumbnailUrl: e.thumbnailUrl,
+    videoUrl: e.videoUrl,
     popularityScore: parseFloat(e.popularityScore?.toString() || '0')
   }));
 

@@ -41,12 +41,12 @@ export interface ExerciseListItem {
   movementPattern: MovementPattern | null;
   exerciseType: ExerciseType | null;
   thumbnailUrl: string | null;
+  videoUrl: string | null;
   popularityScore: number;
 }
 
 export interface ExerciseDetail extends ExerciseListItem {
   instructions: string | null;
-  videoUrl: string | null;
   totalTimesUsed: number;
   createdAt: string;
   updatedAt: string;

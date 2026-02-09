@@ -47,7 +47,6 @@ export interface ExerciseListItem {
 
 export interface ExerciseDetail extends ExerciseListItem {
   instructions: string | null;
-  videoUrl: string | null;
   totalTimesUsed: number;
   createdAt: string;
   updatedAt: string;

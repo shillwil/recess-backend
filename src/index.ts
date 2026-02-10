@@ -5,6 +5,7 @@ import { config } from './config';
 import { AuthenticatedRequest, firebaseAuthMiddleware } from './middleware/auth';
 import { getOrCreateUser, updateUserProfile } from './services/userService';
 import { SyncService, SyncPayload } from './services/syncService';
+import aiRoutes from './routes/ai';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -122,6 +123,9 @@ app.post('/api/sync', firebaseAuthMiddleware, async (req: AuthenticatedRequest, 
     });
   }
 });
+
+// AI routes (includes strength profile at /api/ai/strength-profile)
+app.use('/api/ai', aiRoutes);
 
 // Global error handler
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {

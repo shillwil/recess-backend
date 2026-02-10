@@ -20,6 +20,9 @@ export interface User {
   lastWorkoutDate?: string;
   pushNotificationTokens: string[];
   notificationsEnabled: boolean;
+  subscriptionTier: 'free' | 'paid';
+  aiGenerationsThisMonth: number;
+  aiGenerationsResetAt?: string;
   lastSyncedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -184,11 +187,14 @@ export interface WorkoutProgram {
   userId: string;
   name: string;
   description?: string;
-  durationWeeks: number;
+  durationWeeks: number | null; // Nullable for AI-generated ongoing programs
   isPublic: boolean;
   privacyLevel: 'private' | 'friends' | 'public';
   isAiGenerated: boolean;
   aiPrompt?: string;
+  rating?: number; // 1-5 user rating of AI-generated program
+  aiModel?: string;
+  aiGenerationTimeMs?: number;
   downloadCount: number;
   likeCount: number;
   createdAt: string;
@@ -201,5 +207,45 @@ export interface ProgramWeek {
   weekNumber: number;
   dayNumber: number;
   templateId: string;
+  createdAt: string;
+}
+
+// AI generation
+export interface UserStrengthProfile {
+  id: string;
+  userId: string;
+  strengthEntries: Array<{
+    exerciseId: string;
+    exerciseName: string;
+    weight: number;
+    unit: 'lb' | 'kg';
+    reps: number;
+    sets: number;
+  }>;
+  updatedAt: string;
+  createdAt: string;
+}
+
+export interface AiGenerationLog {
+  id: string;
+  userId: string;
+  inspirationSource?: string;
+  daysPerWeek: number;
+  sessionDurationMinutes?: number;
+  experienceLevel?: string;
+  goal?: string;
+  equipment?: string[];
+  usedTrainingHistory: boolean;
+  freeTextPreferences?: string;
+  personalizationSource?: 'training_history' | 'manual_profile' | 'none';
+  programId?: string;
+  success: boolean;
+  errorMessage?: string;
+  retryCount: number;
+  generationTimeMs?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  userRating?: number;
+  userFeedback?: string;
   createdAt: string;
 }

@@ -325,6 +325,8 @@ export async function createTemplate(
         userId,
         name: input.name,
         description: input.description || null,
+        isAiGenerated: input.isAiGenerated ?? false,
+        aiPrompt: input.aiPrompt || null,
       })
       .returning();
 

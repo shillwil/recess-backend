@@ -99,6 +99,8 @@ export interface TemplateExerciseInput {
 export interface CreateTemplateInput {
   name: string;
   description?: string;
+  isAiGenerated?: boolean;
+  aiPrompt?: string;
   exercises: TemplateExerciseInput[];
 }
 

@@ -70,9 +70,14 @@ export const users = pgTable('users', {
   pushNotificationTokens: jsonb('push_notification_tokens').$type<string[]>().default([]),
   notificationsEnabled: boolean('notifications_enabled').default(true),
   
+  // AI generation tracking
+  aiGenerationsThisMonth: integer('ai_generations_this_month').default(0),
+  aiGenerationsResetAt: timestamp('ai_generations_reset_at'),
+  subscriptionTier: varchar('subscription_tier', { length: 20 }).default('free'),
+
   // Sync tracking
   lastSyncedAt: timestamp('last_synced_at'),
-  
+
   // Timestamps
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull()
@@ -219,6 +224,9 @@ export const workoutPrograms = pgTable('workout_programs', {
   // AI-generated metadata
   isAiGenerated: boolean('is_ai_generated').default(false),
   aiPrompt: text('ai_prompt'),
+  rating: integer('rating'),
+  aiModel: varchar('ai_model', { length: 50 }),
+  aiGenerationTimeMs: integer('ai_generation_time_ms'),
 
   // Stats
   downloadCount: integer('download_count').default(0),
@@ -452,8 +460,63 @@ export const templateLikes = pgTable('template_likes', {
   templateIdIdx: index('template_likes_template_idx').on(table.templateId)
 }));
 
+// User strength profiles - manual strength data for AI personalization
+export const userStrengthProfiles = pgTable('user_strength_profiles', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+
+  strengthEntries: jsonb('strength_entries').$type<Array<{
+    exerciseId: string;
+    exerciseName: string;
+    weight: number;
+    unit: 'lb' | 'kg';
+    reps: number;
+    sets: number;
+  }>>().default([]),
+
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: uniqueIndex('user_strength_profiles_user_id_idx').on(table.userId),
+}));
+
+// AI generation logs - tracks all AI program generation attempts
+export const aiGenerationLogs = pgTable('ai_generation_logs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+
+  // Request
+  inspirationSource: text('inspiration_source'),
+  daysPerWeek: integer('days_per_week').notNull(),
+  sessionDurationMinutes: integer('session_duration_minutes'),
+  experienceLevel: varchar('experience_level', { length: 20 }),
+  goal: varchar('goal', { length: 50 }),
+  equipment: jsonb('equipment').$type<string[]>(),
+  usedTrainingHistory: boolean('used_training_history').default(false),
+  freeTextPreferences: text('free_text_preferences'),
+
+  // Response
+  programId: uuid('program_id').references(() => workoutPrograms.id),
+  success: boolean('success').notNull(),
+  errorMessage: text('error_message'),
+  retryCount: integer('retry_count').default(0),
+  generationTimeMs: integer('generation_time_ms'),
+  promptTokens: integer('prompt_tokens'),
+  completionTokens: integer('completion_tokens'),
+
+  // Feedback
+  userRating: integer('user_rating'),
+  userFeedback: text('user_feedback'),
+  personalizationSource: varchar('personalization_source', { length: 20 }),
+
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, (table) => ({
+  userIdIdx: index('ai_gen_logs_user_id_idx').on(table.userId),
+  createdAtIdx: index('ai_gen_logs_created_at_idx').on(table.createdAt)
+}));
+
 // Relations
-export const usersRelations = relations(users, ({ many }) => ({
+export const usersRelations = relations(users, ({ one, many }) => ({
   workouts: many(workouts),
   workoutTemplates: many(workoutTemplates),
   workoutPrograms: many(workoutPrograms),
@@ -464,7 +527,9 @@ export const usersRelations = relations(users, ({ many }) => ({
   competitions: many(competitions),
   competitionParticipations: many(competitionParticipants),
   templateLikes: many(templateLikes),
-  exerciseHistory: many(userExerciseHistory)
+  exerciseHistory: many(userExerciseHistory),
+  strengthProfile: one(userStrengthProfiles),
+  aiGenerationLogs: many(aiGenerationLogs)
 }));
 
 export const exercisesRelations = relations(exercises, ({ many }) => ({
@@ -551,6 +616,24 @@ export const programWeeksRelations = relations(programWeeks, ({ one }) => ({
   template: one(workoutTemplates, {
     fields: [programWeeks.templateId],
     references: [workoutTemplates.id]
+  })
+}));
+
+export const userStrengthProfilesRelations = relations(userStrengthProfiles, ({ one }) => ({
+  user: one(users, {
+    fields: [userStrengthProfiles.userId],
+    references: [users.id]
+  })
+}));
+
+export const aiGenerationLogsRelations = relations(aiGenerationLogs, ({ one }) => ({
+  user: one(users, {
+    fields: [aiGenerationLogs.userId],
+    references: [users.id]
+  }),
+  program: one(workoutPrograms, {
+    fields: [aiGenerationLogs.programId],
+    references: [workoutPrograms.id]
   })
 }));
 

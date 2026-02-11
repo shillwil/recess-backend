@@ -377,6 +377,10 @@ export async function createProgram(
         description: input.description || null,
         daysPerWeek: input.daysPerWeek,
         durationWeeks: input.durationWeeks ?? null,
+        isAiGenerated: input.isAiGenerated ?? false,
+        aiPrompt: input.aiPrompt || null,
+        aiModel: input.aiModel || null,
+        aiGenerationTimeMs: input.aiGenerationTimeMs ?? null,
       })
       .returning();
 

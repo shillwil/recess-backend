@@ -7,7 +7,7 @@ import {
   workoutPrograms,
   userStrengthProfiles,
 } from '../db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { aiConfig, equipmentArrayToDb, equipmentFromDb } from '../config/ai';
 import { buildProgramGenerationPrompt, buildRetryPrompt } from '../prompts/programGeneration';
 import { createTemplate } from './templateService';
@@ -156,7 +156,10 @@ export async function checkAiRateLimit(userId: string): Promise<RateLimitResult>
 }
 
 /**
- * Increment the user's monthly generation count. Only call on successful generation.
+ * Atomically increment the user's monthly generation count.
+ * Uses SQL-level increment to avoid TOCTOU race conditions — the Gemini call
+ * takes 10-30s, so a read-then-write pattern would allow concurrent requests
+ * to both read the same count and both succeed past the limit.
  */
 async function incrementAiGeneration(userId: string): Promise<void> {
   const now = new Date();
@@ -164,7 +167,6 @@ async function incrementAiGeneration(userId: string): Promise<void> {
   const [user] = await db
     .select({
       aiGenerationsResetAt: users.aiGenerationsResetAt,
-      aiGenerationsThisMonth: users.aiGenerationsThisMonth,
     })
     .from(users)
     .where(eq(users.id, userId))
@@ -179,9 +181,9 @@ async function incrementAiGeneration(userId: string): Promise<void> {
       .set({ aiGenerationsThisMonth: 1, aiGenerationsResetAt: nextMonth })
       .where(eq(users.id, userId));
   } else {
-    // Increment within current period
+    // Atomic increment within current period
     await db.update(users)
-      .set({ aiGenerationsThisMonth: (user?.aiGenerationsThisMonth || 0) + 1 })
+      .set({ aiGenerationsThisMonth: sql`COALESCE(${users.aiGenerationsThisMonth}, 0) + 1` })
       .where(eq(users.id, userId));
   }
 }

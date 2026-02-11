@@ -143,5 +143,7 @@ export function formatStrengthDataForPrompt(entries: StrengthEntry[]): string {
     .filter(e => e.exerciseId) // Only include matched exercises
     .map(e => `${e.exerciseName}: ${e.weight}${e.unit} x${e.reps} for ${e.sets} sets`);
 
+  if (lines.length === 0) return '';
+
   return `USER MANUAL STRENGTH PROFILE:\n${lines.join('\n')}`;
 }

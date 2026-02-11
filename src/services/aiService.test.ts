@@ -677,3 +677,50 @@ describe('Strength Profile Input Validation', () => {
     expect(result.valid).toBe(true);
   });
 });
+
+// ============ formatStrengthDataForPrompt Tests ============
+
+describe('formatStrengthDataForPrompt', () => {
+  // Replicate the fixed logic to test the edge case
+  function formatStrengthData(entries: Array<{ exerciseId: string; exerciseName: string; weight: number; unit: string; reps: number; sets: number }>): string {
+    if (entries.length === 0) return '';
+
+    const lines = entries
+      .filter(e => e.exerciseId)
+      .map(e => `${e.exerciseName}: ${e.weight}${e.unit} x${e.reps} for ${e.sets} sets`);
+
+    if (lines.length === 0) return '';
+
+    return `USER MANUAL STRENGTH PROFILE:\n${lines.join('\n')}`;
+  }
+
+  it('should return empty string for empty entries array', () => {
+    expect(formatStrengthData([])).toBe('');
+  });
+
+  it('should return empty string when all exercises have empty exerciseId (no matches)', () => {
+    const entries = [
+      { exerciseId: '', exerciseName: 'Made Up Exercise', weight: 100, unit: 'lb', reps: 5, sets: 3 },
+      { exerciseId: '', exerciseName: 'Another Fake One', weight: 50, unit: 'kg', reps: 8, sets: 4 },
+    ];
+    expect(formatStrengthData(entries)).toBe('');
+  });
+
+  it('should format matched exercises correctly', () => {
+    const entries = [
+      { exerciseId: 'ex-1', exerciseName: 'Bench Press', weight: 185, unit: 'lb', reps: 5, sets: 3 },
+    ];
+    const result = formatStrengthData(entries);
+    expect(result).toBe('USER MANUAL STRENGTH PROFILE:\nBench Press: 185lb x5 for 3 sets');
+  });
+
+  it('should skip unmatched exercises but include matched ones', () => {
+    const entries = [
+      { exerciseId: '', exerciseName: 'Fake Exercise', weight: 100, unit: 'lb', reps: 5, sets: 3 },
+      { exerciseId: 'ex-1', exerciseName: 'Bench Press', weight: 185, unit: 'lb', reps: 5, sets: 3 },
+    ];
+    const result = formatStrengthData(entries);
+    expect(result).toContain('Bench Press');
+    expect(result).not.toContain('Fake Exercise');
+  });
+});

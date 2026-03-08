@@ -118,6 +118,10 @@ export interface CreateProgramInput {
   description?: string;
   daysPerWeek: number; // 1-7
   durationWeeks?: number; // null = indefinite
+  isAiGenerated?: boolean;
+  aiPrompt?: string;
+  aiModel?: string;
+  aiGenerationTimeMs?: number;
   workouts: ProgramWorkoutInput[];
 }
 

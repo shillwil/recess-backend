@@ -9,6 +9,7 @@ import { SyncService, SyncPayload } from './services/syncService';
 import exerciseRoutes from './routes/exercises';
 import templateRoutes from './routes/templates';
 import programRoutes from './routes/programs';
+import aiRoutes from './routes/ai';
 import { seedExercisesOnStartup } from './services/exerciseSeedService';
 import { validateUserProfileUpdate, validateSyncPayload } from './utils/validation';
 import {
@@ -210,6 +211,9 @@ app.use('/api/templates', templateRoutes);
 
 // Program API routes (rate limiting handled in routes file for write operations only)
 app.use('/api/programs', programRoutes);
+
+// AI program generation routes
+app.use('/api/ai', aiRoutes);
 
 // Sync endpoint - sync user's workout data
 app.post('/api/sync', syncLimiter, firebaseAuthMiddleware, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {

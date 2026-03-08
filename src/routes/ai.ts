@@ -4,7 +4,8 @@ import { AuthenticatedRequest, firebaseAuthMiddleware } from '../middleware/auth
 import { getOrCreateUser } from '../services/userService';
 import {
   generateProgram,
-  checkAiRateLimit,
+  reserveAiGeneration,
+  releaseAiGeneration,
   rateProgram,
   getGenerationStatus,
   AiGenerationError,
@@ -226,13 +227,18 @@ router.post(
         return;
       }
 
-      // Check rate limit
-      const rateLimit = await checkAiRateLimit(user.id);
+      // Atomically check rate limit AND reserve a generation slot.
+      // This prevents race conditions where concurrent requests both pass
+      // the limit check before either increments the counter.
+      const rateLimit = await reserveAiGeneration(user.id);
       if (!rateLimit.allowed) {
         const resetDate = rateLimit.resetsAt.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+        const message = rateLimit.tier === 'free'
+          ? `You've used all ${rateLimit.limit} AI generations for this month. Resets on ${resetDate}. Upgrade to Pro for more generations.`
+          : `You've used all ${rateLimit.limit} AI generations for this month. Resets on ${resetDate}.`;
         res.status(429).json({
           success: false,
-          message: `You've used all ${rateLimit.limit} AI generations for this month. Resets on ${resetDate}. Upgrade to Pro for ${rateLimit.tier === 'free' ? '20' : rateLimit.limit} generations/month.`,
+          message,
           correlationId,
           data: {
             resetsAt: rateLimit.resetsAt.toISOString(),
@@ -243,8 +249,14 @@ router.post(
         return;
       }
 
-      // Generate program
-      const result = await generateProgram(user.id, validation.sanitized, correlationId);
+      // Generate program — if it fails, release the reserved slot
+      let result;
+      try {
+        result = await generateProgram(user.id, validation.sanitized, correlationId);
+      } catch (error) {
+        await releaseAiGeneration(user.id);
+        throw error;
+      }
 
       res.status(201).json({
         success: true,

@@ -117,6 +117,10 @@ export interface RateLimitResult {
   tier: string;
 }
 
+/**
+ * Read-only rate limit check. Used by the generation-status endpoint
+ * to report remaining quota without modifying any state.
+ */
 export async function checkAiRateLimit(userId: string): Promise<RateLimitResult> {
   const [user] = await db
     .select({
@@ -141,13 +145,12 @@ export async function checkAiRateLimit(userId: string): Promise<RateLimitResult>
   const resetAt = user.aiGenerationsResetAt;
   const currentCount = user.aiGenerationsThisMonth || 0;
 
-  // If reset time has passed (or never set), reset counter
+  // If reset time has passed (or never set), counter is effectively 0
   if (!resetAt || now > resetAt) {
     const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
     return { allowed: true, remaining: limit, resetsAt: nextMonth, limit, tier };
   }
 
-  // Check limit
   if (currentCount >= limit) {
     return { allowed: false, remaining: 0, resetsAt: resetAt, limit, tier };
   }
@@ -156,36 +159,100 @@ export async function checkAiRateLimit(userId: string): Promise<RateLimitResult>
 }
 
 /**
- * Atomically increment the user's monthly generation count.
- * Uses SQL-level increment to avoid TOCTOU race conditions — the Gemini call
- * takes 10-30s, so a read-then-write pattern would allow concurrent requests
- * to both read the same count and both succeed past the limit.
+ * Atomically check the rate limit AND reserve a generation slot in a single
+ * SQL UPDATE. This prevents TOCTOU race conditions — since the Gemini call
+ * takes 10-30s, a separate check-then-increment pattern would let concurrent
+ * requests both pass the limit check before either increments.
+ *
+ * The WHERE clause ensures the UPDATE only succeeds if:
+ *   - the monthly reset period has passed (reset needed), OR
+ *   - the current count is still under the limit
+ *
+ * The SET clause uses CASE expressions so both the reset and normal-increment
+ * paths are handled atomically within the same statement.
+ *
+ * If generation fails after reservation, call releaseAiGeneration() to
+ * return the slot.
  */
-async function incrementAiGeneration(userId: string): Promise<void> {
-  const now = new Date();
-
+export async function reserveAiGeneration(userId: string): Promise<RateLimitResult> {
   const [user] = await db
-    .select({
-      aiGenerationsResetAt: users.aiGenerationsResetAt,
-    })
+    .select({ subscriptionTier: users.subscriptionTier })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
 
-  const resetAt = user?.aiGenerationsResetAt;
+  if (!user) throw new Error('User not found');
 
-  if (!resetAt || now > resetAt) {
-    // Reset period passed — set count to 1 and schedule next reset
-    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    await db.update(users)
-      .set({ aiGenerationsThisMonth: 1, aiGenerationsResetAt: nextMonth })
-      .where(eq(users.id, userId));
-  } else {
-    // Atomic increment within current period
-    await db.update(users)
-      .set({ aiGenerationsThisMonth: sql`COALESCE(${users.aiGenerationsThisMonth}, 0) + 1` })
-      .where(eq(users.id, userId));
+  const tier = user.subscriptionTier || 'free';
+  const limit = tier === 'paid'
+    ? aiConfig.rateLimit.paidMonthlyLimit
+    : aiConfig.rateLimit.freeMonthlyLimit;
+
+  const now = new Date();
+  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+  // Single atomic UPDATE: checks limit in WHERE, handles reset vs increment in SET
+  const updated = await db.update(users)
+    .set({
+      aiGenerationsThisMonth: sql`CASE
+        WHEN ${users.aiGenerationsResetAt} IS NULL OR ${users.aiGenerationsResetAt} < ${now}
+        THEN 1
+        ELSE COALESCE(${users.aiGenerationsThisMonth}, 0) + 1
+      END`,
+      aiGenerationsResetAt: sql`CASE
+        WHEN ${users.aiGenerationsResetAt} IS NULL OR ${users.aiGenerationsResetAt} < ${now}
+        THEN ${nextMonth}
+        ELSE ${users.aiGenerationsResetAt}
+      END`,
+    })
+    .where(
+      sql`${users.id} = ${userId} AND (
+        ${users.aiGenerationsResetAt} IS NULL
+        OR ${users.aiGenerationsResetAt} < ${now}
+        OR COALESCE(${users.aiGenerationsThisMonth}, 0) < ${limit}
+      )`
+    )
+    .returning();
+
+  if (updated.length === 0) {
+    // No rows updated = rate limit exceeded
+    const [current] = await db
+      .select({ resetsAt: users.aiGenerationsResetAt })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    return {
+      allowed: false,
+      remaining: 0,
+      resetsAt: current?.resetsAt || nextMonth,
+      limit,
+      tier,
+    };
   }
+
+  const newCount = updated[0].aiGenerationsThisMonth || 1;
+  const resetsAt = updated[0].aiGenerationsResetAt || nextMonth;
+
+  return {
+    allowed: true,
+    remaining: limit - newCount,
+    resetsAt,
+    limit,
+    tier,
+  };
+}
+
+/**
+ * Release a previously reserved generation slot. Called when AI generation
+ * fails after reserveAiGeneration() succeeded, so the user isn't charged
+ * for a failed attempt.
+ */
+export async function releaseAiGeneration(userId: string): Promise<void> {
+  await db.update(users)
+    .set({
+      aiGenerationsThisMonth: sql`GREATEST(COALESCE(${users.aiGenerationsThisMonth}, 0) - 1, 0)`,
+    })
+    .where(eq(users.id, userId));
 }
 
 // ============ Exercise Catalog ============
@@ -378,14 +445,20 @@ export async function generateProgram(
     } else if (input.manualStrengthData && input.manualStrengthData.length > 0) {
       // Save manual strength data for future use
       const profile = await upsertStrengthProfile(userId, input.manualStrengthData);
-      trainingHistorySummary = formatStrengthDataForPrompt(profile.entries);
-      personalizationSource = 'manual_profile';
+      const strengthPrompt = formatStrengthDataForPrompt(profile.entries);
+      if (strengthPrompt) {
+        trainingHistorySummary = strengthPrompt;
+        personalizationSource = 'manual_profile';
+      }
     } else {
       // Check if user has an existing strength profile
       const existingProfile = await getStrengthProfile(userId);
       if (existingProfile && existingProfile.entries.length > 0) {
-        trainingHistorySummary = formatStrengthDataForPrompt(existingProfile.entries);
-        personalizationSource = 'manual_profile';
+        const strengthPrompt = formatStrengthDataForPrompt(existingProfile.entries);
+        if (strengthPrompt) {
+          trainingHistorySummary = strengthPrompt;
+          personalizationSource = 'manual_profile';
+        }
       }
       // Otherwise, fall back to generic defaults (trainingHistorySummary stays null)
     }
@@ -566,10 +639,7 @@ export async function generateProgram(
     })),
   });
 
-  // 6. Increment generation count (only on success)
-  await incrementAiGeneration(userId);
-
-  // 7. Log successful generation
+  // 6. Log successful generation (rate limit slot was already reserved by the caller)
   await logGenerationAttempt(userId, input, {
     success: true,
     programId: program.id,

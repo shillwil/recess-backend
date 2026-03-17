@@ -10,6 +10,7 @@ import exerciseRoutes from './routes/exercises';
 import templateRoutes from './routes/templates';
 import programRoutes from './routes/programs';
 import aiRoutes from './routes/ai';
+import shareRoutes from './routes/shares';
 import { seedExercisesOnStartup } from './services/exerciseSeedService';
 import { validateUserProfileUpdate, validateSyncPayload } from './utils/validation';
 import {
@@ -214,6 +215,9 @@ app.use('/api/programs', programRoutes);
 
 // AI program generation routes
 app.use('/api/ai', aiRoutes);
+
+// Share routes (mixed auth - POST requires auth, GET is public)
+app.use('/api/shares', shareRoutes);
 
 // Sync endpoint - sync user's workout data
 app.post('/api/sync', syncLimiter, firebaseAuthMiddleware, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {

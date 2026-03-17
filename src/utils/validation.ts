@@ -1426,3 +1426,71 @@ export function validateProgramWorkouts(data: unknown, daysPerWeek: number): Upd
 
   return { valid: true, errors: [], sanitized };
 }
+
+// ============ Share Validation ============
+
+const VALID_SHARE_TYPES = ['program', 'template'] as const;
+
+/**
+ * Create share validation result
+ */
+export interface CreateShareValidationResult extends ValidationResult {
+  sanitized?: {
+    type: 'program' | 'template';
+    itemId: string;
+  };
+}
+
+/**
+ * Validates create share input
+ */
+export function validateCreateShare(data: unknown): CreateShareValidationResult {
+  const errors: string[] = [];
+
+  if (typeof data !== 'object' || data === null) {
+    return { valid: false, errors: ['Request body must be an object'] };
+  }
+
+  const input = data as Record<string, unknown>;
+
+  // Validate type (required)
+  if (!input.type || typeof input.type !== 'string') {
+    errors.push('type is required and must be a string');
+  } else if (!VALID_SHARE_TYPES.includes(input.type as typeof VALID_SHARE_TYPES[number])) {
+    errors.push(`type must be one of: ${VALID_SHARE_TYPES.join(', ')}`);
+  }
+
+  // Validate itemId (required UUID)
+  if (!input.itemId || typeof input.itemId !== 'string') {
+    errors.push('itemId is required and must be a string');
+  } else if (!isValidUuid(input.itemId)) {
+    errors.push('itemId must be a valid UUID');
+  }
+
+  if (errors.length > 0) {
+    return { valid: false, errors };
+  }
+
+  return {
+    valid: true,
+    errors: [],
+    sanitized: {
+      type: input.type as 'program' | 'template',
+      itemId: input.itemId as string,
+    }
+  };
+}
+
+/**
+ * Validates a share token from the URL parameter.
+ * Tokens are base64url-encoded, so allow alphanumeric + hyphen + underscore.
+ */
+export function validateShareToken(token: string): boolean {
+  if (!token || typeof token !== 'string') {
+    return false;
+  }
+  if (token.length > 64) {
+    return false;
+  }
+  return /^[a-zA-Z0-9_-]+$/.test(token);
+}

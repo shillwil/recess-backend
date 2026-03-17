@@ -34,6 +34,9 @@ export const syncOperationEnum = pgEnum('sync_operation', ['create', 'update', '
 export const syncStatusEnum = pgEnum('sync_status', ['pending', 'syncing', 'completed', 'failed']);
 export const conflictResolutionEnum = pgEnum('conflict_resolution', ['client_wins', 'server_wins', 'merged']);
 
+// Share enums
+export const shareTypeEnum = pgEnum('share_type', ['program', 'template']);
+
 // Exercise classification enums
 export const difficultyLevelEnum = pgEnum('difficulty_level', ['beginner', 'intermediate', 'advanced']);
 export const movementPatternEnum = pgEnum('movement_pattern', ['push', 'pull', 'hinge', 'squat', 'lunge', 'carry', 'rotation', 'core']);
@@ -515,6 +518,22 @@ export const aiGenerationLogs = pgTable('ai_generation_logs', {
   createdAtIdx: index('ai_gen_logs_created_at_idx').on(table.createdAt)
 }));
 
+// Shares - frozen snapshots for deep-link sharing
+export const shares = pgTable('shares', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  token: varchar('token', { length: 64 }).unique().notNull(),
+  type: shareTypeEnum('type').notNull(),
+  itemId: uuid('item_id').notNull(), // Polymorphic: references programs OR templates
+  sharedBy: uuid('shared_by').references(() => users.id).notNull(),
+  snapshot: jsonb('snapshot').notNull(),
+  expiresAt: timestamp('expires_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, (table) => ({
+  tokenIdx: uniqueIndex('shares_token_idx').on(table.token),
+  sharedByIdx: index('shares_shared_by_idx').on(table.sharedBy),
+  typeItemIdx: index('shares_type_item_idx').on(table.type, table.itemId)
+}));
+
 // Relations
 export const usersRelations = relations(users, ({ one, many }) => ({
   workouts: many(workouts),
@@ -529,7 +548,8 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   templateLikes: many(templateLikes),
   exerciseHistory: many(userExerciseHistory),
   strengthProfile: one(userStrengthProfiles),
-  aiGenerationLogs: many(aiGenerationLogs)
+  aiGenerationLogs: many(aiGenerationLogs),
+  shares: many(shares)
 }));
 
 export const exercisesRelations = relations(exercises, ({ many }) => ({
@@ -634,6 +654,13 @@ export const aiGenerationLogsRelations = relations(aiGenerationLogs, ({ one }) =
   program: one(workoutPrograms, {
     fields: [aiGenerationLogs.programId],
     references: [workoutPrograms.id]
+  })
+}));
+
+export const sharesRelations = relations(shares, ({ one }) => ({
+  user: one(users, {
+    fields: [shares.sharedBy],
+    references: [users.id]
   })
 }));
 

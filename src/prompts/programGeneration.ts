@@ -57,7 +57,14 @@ If the user gives a general description (e.g., "hypertrophy", "get stronger", "l
 You MUST select exercises ONLY from this list. Use the exact "id" values provided. Do not use any exercise not in this list.
 
 \`\`\`json
-${JSON.stringify(params.exerciseCatalog, null, 2)}
+${JSON.stringify(params.exerciseCatalog.map(e => ({
+  id: e.id,
+  name: e.name,
+  muscles: e.primaryMuscles,
+  equipment: e.equipment,
+  movement: e.movementPattern,
+  type: e.exerciseType,
+})))}
 \`\`\`
 
 ## OUTPUT FORMAT

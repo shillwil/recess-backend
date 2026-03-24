@@ -3,8 +3,8 @@
 export const aiConfig = {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || '',
-    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
-    requestTimeoutMs: parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '30000', 10),
+    model: process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite',
+    requestTimeoutMs: parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '120000', 10),
     maxRetries: parseInt(process.env.AI_MAX_RETRIES || '2', 10),
   },
   rateLimit: {

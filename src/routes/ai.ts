@@ -390,12 +390,7 @@ router.get(
       const user = await getOrCreateUser(req.user!);
       const profile = await getStrengthProfile(user.id);
 
-      if (!profile) {
-        sendErrorResponse(res, 404, 'No strength profile found', undefined, correlationId);
-        return;
-      }
-
-      sendSuccessResponse(res, { profile }, undefined, 200, correlationId);
+      sendSuccessResponse(res, { profile: profile || null }, undefined, 200, correlationId);
     } catch (error) {
       logError('GET /api/ai/strength-profile', error, correlationId);
       sendErrorResponse(res, 500, 'Failed to fetch strength profile', error, correlationId);

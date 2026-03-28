@@ -499,7 +499,7 @@ export const aiGenerationLogs = pgTable('ai_generation_logs', {
   freeTextPreferences: text('free_text_preferences'),
 
   // Response
-  programId: uuid('program_id').references(() => workoutPrograms.id),
+  programId: uuid('program_id').references(() => workoutPrograms.id, { onDelete: 'set null' }),
   success: boolean('success').notNull(),
   errorMessage: text('error_message'),
   retryCount: integer('retry_count').default(0),

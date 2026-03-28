@@ -71,6 +71,13 @@
       "when": 1773696332508,
       "tag": "0009_unknown_nicolaos",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1774739477854,
+      "tag": "0010_worthless_bedlam",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS "exercise_aliases_exercise_id_idx";--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "exercise_aliases_exercise_alias_idx" ON "exercise_aliases" USING btree ("exercise_id","alias");

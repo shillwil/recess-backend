@@ -1,0 +1,68 @@
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { Pool } from 'pg';
+import { config } from 'dotenv';
+import { exercises } from '../src/db/schema';
+import {
+  exerciseSeedData,
+  buildExerciseInsertValues,
+  buildExerciseConflictSet,
+} from '../src/data/exercises';
+import { sql } from 'drizzle-orm';
+
+// Load env
+config({ path: '.env' });
+
+function getDirectDbUrl(): string {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error('DATABASE_URL missing—set in .env.development locally or link in Railway');
+  const parsed = new URL(url);
+  if (process.env.NODE_ENV !== 'development' && process.env.NODE_ENV) {
+    parsed.searchParams.set('sslmode', 'require');
+  }
+  return parsed.toString();
+}
+
+async function seedExercises(): Promise<void> {
+  console.log('Starting exercise seeding...');
+  console.log(`Preparing to seed ${exerciseSeedData.length} exercises`);
+
+  const pool = new Pool({
+    connectionString: getDirectDbUrl(),
+    max: 1,
+  });
+  const db = drizzle(pool);
+
+  try {
+    let processed = 0;
+
+    for (const exercise of exerciseSeedData) {
+      await db
+        .insert(exercises)
+        .values(buildExerciseInsertValues(exercise))
+        .onConflictDoUpdate({
+          target: exercises.name,
+          set: buildExerciseConflictSet(exercise),
+        })
+        .returning({ id: exercises.id, name: exercises.name });
+
+      console.log(`  ${exercise.name}`);
+      processed++;
+    }
+
+    console.log(`\nSeeding complete!`);
+    console.log(`   Total exercises processed: ${processed}`);
+
+    // Verify count
+    const countResult = await db.select({ count: sql<number>`count(*)` }).from(exercises).where(sql`video_url IS NOT NULL`);
+    console.log(`   Exercises with videos in DB: ${countResult[0].count}`);
+
+  } catch (error) {
+    console.error('Seeding failed:', error);
+    process.exit(1);
+  } finally {
+    await pool.end();
+  }
+}
+
+// Run if executed directly
+seedExercises();

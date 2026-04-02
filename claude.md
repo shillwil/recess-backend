@@ -15,6 +15,18 @@
 - Social features (following, public templates)
 - Competitions
 
+## Communication & Explanation Guidelines
+
+**Developer context:** The primary developer on this project is an iOS engineer with 6 years of mobile engineering experience, not a backend engineer by trade. Keep this in mind for all interactions.
+
+**Mentorship approach:** Any time you make a plan, identify a bug, solve a PR comment issue, or do anything similar, explain your reasoning as if you're a mentor guiding a new backend team member. This includes:
+- **Why** you're choosing a particular approach over alternatives
+- **Trade-offs** of the chosen method (what we gain, what we give up)
+- **How it matters** in the context of the backend system (performance, security, maintainability, etc.)
+- Relate backend concepts to mobile/iOS equivalents when helpful
+
+**Command explanations:** Any time you ask for permission to run a specific command, include a clear explanation of what that command does and why you need to run it. Don't assume familiarity with backend CLI tools, database commands, or DevOps tooling.
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -31,19 +43,32 @@
 
 ```
 src/
-├── index.ts              # Express app entry point, route definitions
+├── index.ts              # Express app entry point, core routes
 ├── config/               # Environment configuration & validation
 ├── db/
 │   ├── index.ts          # Database connection (direct & proxy modes)
 │   └── schema.ts         # Drizzle ORM schema (25+ tables)
 ├── middleware/
-│   └── auth.ts           # Firebase JWT verification middleware
+│   ├── auth.ts           # Firebase JWT verification middleware
+│   └── optionalAuth.ts   # Optional auth for public endpoints
+├── routes/
+│   ├── exercises.ts      # Exercise library endpoints
+│   ├── templates.ts      # Workout template endpoints
+│   └── programs.ts       # Training program endpoints
 ├── services/
 │   ├── firebase.ts       # Firebase Admin SDK initialization
 │   ├── userService.ts    # User CRUD operations
-│   └── syncService.ts    # Multi-device sync & conflict resolution
+│   ├── syncService.ts    # Multi-device sync & conflict resolution
+│   ├── exerciseService.ts # Exercise library operations
+│   └── syncHelpers.ts    # Sync data normalization utilities
+├── utils/
+│   ├── validation.ts     # Input validation & sanitization
+│   └── errorResponse.ts  # Standardized error handling
 └── models/
-    └── index.ts          # TypeScript interfaces
+    ├── index.ts          # Core TypeScript interfaces
+    └── exercise.types.ts # Exercise-specific types
+docs/
+└── API.md                # Full API documentation
 ```
 
 ## Architecture
@@ -87,12 +112,21 @@ Routes (index.ts) → Middleware (auth) → Services → Database (Drizzle)
 
 **API Response Patterns:**
 ```typescript
-// Success
-res.json({ user: userData });
+// Success response
+res.json({
+  success: true,
+  data: { ... },
+  correlationId: req.correlationId
+});
 
-// Error
-res.status(400).json({ error: 'Descriptive error message' });
+// Error response (use sendErrorResponse utility)
+import { sendErrorResponse } from '../utils/errorResponse';
+sendErrorResponse(res, 400, 'Descriptive error message', error, correlationId, {
+  validationErrors: ['field1 is required']
+});
 ```
+
+**Correlation IDs:** Every request gets a unique `correlationId` for tracing. Include it in all responses and logs.
 
 ## Testing Requirements
 
@@ -122,10 +156,73 @@ npm run start:prod       # Run with migrations for production
 # Database
 npm run db:generate      # Generate new migration from schema changes
 npm run db:migrate       # Apply pending migrations
+npm run db:seed          # Seed exercises table with predefined exercises
 
-# Docker (local development)
+# Docker
 docker-compose up -d     # Start PostgreSQL + backend
 docker-compose down      # Stop services
+```
+
+## Local Development with Docker
+
+**Prerequisites:** Docker and Docker Compose installed
+
+### Quick Start
+
+```bash
+# 1. Start PostgreSQL container
+docker start recess_postgres_dev || docker-compose up -d postgres
+
+# 2. Install dependencies (if not already done)
+npm install
+
+# 3. Run migrations
+DATABASE_URL="postgresql://postgres:password@localhost:5432/recess_dev" npm run db:migrate
+
+# 4. Seed the exercises table (optional, for exercise data)
+DATABASE_URL="postgresql://postgres:password@localhost:5432/recess_dev" npm run db:seed
+
+# 5. Start the development server
+DATABASE_URL="postgresql://postgres:password@localhost:5432/recess_dev" npm run dev
+```
+
+### Database Connection Details
+
+| Property | Value |
+|----------|-------|
+| Host | `localhost` |
+| Port | `5432` |
+| Database | `recess_dev` |
+| User | `postgres` |
+| Password | `password` |
+| Full URL | `postgresql://postgres:password@localhost:5432/recess_dev` |
+
+### Troubleshooting Docker
+
+**Container name conflict:**
+```bash
+# If you see "container name already in use" error
+docker start recess_postgres_dev  # Try starting existing container first
+# Or remove and recreate
+docker rm recess_postgres_dev && docker-compose up -d postgres
+```
+
+**Check if PostgreSQL is running:**
+```bash
+docker ps | grep recess_postgres
+```
+
+**View PostgreSQL logs:**
+```bash
+docker logs recess_postgres_dev
+```
+
+**Reset database (delete all data):**
+```bash
+docker-compose down -v  # -v removes volumes
+docker-compose up -d postgres
+DATABASE_URL="postgresql://postgres:password@localhost:5432/recess_dev" npm run db:migrate
+DATABASE_URL="postgresql://postgres:password@localhost:5432/recess_dev" npm run db:seed
 ```
 
 ## API Endpoints
@@ -136,7 +233,17 @@ docker-compose down      # Stop services
 | POST | `/api/auth/login` | Firebase Token | Login/register user |
 | GET | `/api/me` | Yes | Get current user profile |
 | PUT | `/api/me` | Yes | Update user profile |
+| GET | `/api/exercises` | Optional | Search/browse exercise library |
+| GET | `/api/exercises/:id` | No | Get exercise details |
+| GET | `/api/exercises/filters` | No | Get filter metadata with counts |
+| POST | `/api/exercises/:id/record-usage` | Yes | Record exercise usage for personalization |
+| GET | `/api/templates` | Yes | List user's workout templates |
+| POST | `/api/templates` | Yes | Create workout template |
+| GET | `/api/programs` | Yes | List user's programs |
+| POST | `/api/programs` | Yes | Create program |
 | POST | `/api/sync` | Yes | Sync workout data from mobile |
+
+See `docs/API.md` for complete endpoint documentation.
 
 ## Database Schema Overview
 
@@ -171,6 +278,44 @@ The sync service (`src/services/syncService.ts`) handles bidirectional data sync
 - Preserve `clientId` mapping behavior
 - Maintain backward compatibility with existing iOS clients
 - Test with multiple devices scenario
+
+## iOS Client Compatibility
+
+The backend is designed to work seamlessly with native iOS apps using URLSession. Key compatibility features:
+
+### CORS Configuration
+- Native iOS apps (URLSession/OkHttp) don't send `Origin` headers - this is allowed
+- Capacitor/Ionic hybrid apps send `capacitor://localhost` - this is allowed
+- Browser requests require valid Origin headers in production
+
+### Query Parameter Aliases
+The exercises endpoint accepts iOS-style parameters alongside modern ones:
+- `q` → alias for `search`
+- `per_page` → alias for `limit`
+- `page` → enables offset-based pagination (instead of cursor)
+
+### Sync Field Aliases
+The sync service normalizes legacy field names automatically:
+- `muscleGroups` → `primaryMuscles`
+- `exerciseTypeMuscleGroups` → `exerciseTypePrimaryMuscles`
+
+**When adding new API features:**
+- Consider if iOS clients use different parameter naming conventions
+- Prefer additive changes to responses (new fields, not modified fields)
+- Document compatibility considerations in `docs/API.md`
+
+## Rate Limiting
+
+The API implements tiered rate limiting to prevent abuse:
+
+| Limiter | Window | Production Limit | Development Limit |
+|---------|--------|------------------|-------------------|
+| General | 15 min | 100 requests | 1000 requests |
+| Auth | 15 min | 10 attempts | 100 attempts |
+| Sync | 1 min | 10 syncs | 100 syncs |
+| Profile | 1 hour | 10 updates | 100 updates |
+
+Rate limit responses return HTTP 429 with a standardized error body.
 
 ## Environment Configuration
 
@@ -208,6 +353,8 @@ When making architectural decisions, keep these planned features in mind:
 - Make breaking API changes without versioning
 - Ignore TypeScript errors
 - Skip error handling on external service calls
+- Add "Co-Authored-By" lines to git commits
+- Include any mention of Claude or AI in commits, PRs, or code comments
 
 ## Troubleshooting
 

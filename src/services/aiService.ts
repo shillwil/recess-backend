@@ -10,9 +10,9 @@ import {
 import { eq, sql } from 'drizzle-orm';
 import { aiConfig, equipmentArrayToDb, equipmentFromDb } from '../config/ai';
 import { buildProgramGenerationPrompt, buildRetryPrompt } from '../prompts/programGeneration';
-import { createTemplate } from './templateService';
-import { createProgram } from './programService';
-import { getTrainingHistorySummary } from './trainingHistoryService';
+import { createTemplate, getTemplatesByIds, updateTemplateExercises } from './templateService';
+import { createProgram, isTemplateUsedInActivePrograms } from './programService';
+import { getTrainingHistorySummary, getProgressTrends, formatProgressTrendsForPrompt } from './trainingHistoryService';
 import {
   getStrengthProfile,
   upsertStrengthProfile,
@@ -33,6 +33,7 @@ export interface GenerateProgramInput {
   useTrainingHistory: boolean;
   manualStrengthData?: ManualStrengthInput[];
   freeTextPreferences?: string;
+  reuseTemplateIds?: string[];
 }
 
 interface GeminiWorkoutExercise {
@@ -50,6 +51,7 @@ interface GeminiWorkout {
   dayLabel: string;
   templateName: string;
   templateDescription: string;
+  reuseTemplateId?: string;
   exercises: GeminiWorkoutExercise[];
 }
 
@@ -76,6 +78,7 @@ export interface GenerateProgramResult {
         id: string;
         name: string;
         exerciseCount: number;
+        wasReused: boolean;
         exercises: Array<{
           exerciseId: string;
           name: string;
@@ -300,7 +303,8 @@ interface ValidationResult {
 function validateGeneratedProgram(
   response: any,
   exerciseIds: Set<string>,
-  daysPerWeek: number
+  daysPerWeek: number,
+  validReuseTemplateIds?: Set<string>
 ): ValidationResult {
   const errors: string[] = [];
 
@@ -333,6 +337,14 @@ function validateGeneratedProgram(
     if (!workout.templateName || typeof workout.templateName !== 'string') {
       errors.push(`Workout dayNumber ${workout.dayNumber}: missing templateName`);
     }
+
+    // Validate reuseTemplateId if present
+    if (workout.reuseTemplateId) {
+      if (!validReuseTemplateIds || !validReuseTemplateIds.has(workout.reuseTemplateId)) {
+        errors.push(`Invalid reuseTemplateId: ${workout.reuseTemplateId} in "${workout.dayLabel}"`);
+      }
+    }
+
     if (!Array.isArray(workout.exercises) || workout.exercises.length === 0) {
       errors.push(`Workout "${workout.dayLabel}": missing or empty exercises`);
       continue;
@@ -436,6 +448,8 @@ export async function generateProgram(
   const exerciseIds = new Set(catalog.map(e => e.id));
 
   // 2. Handle personalization
+  let formattedProgressTrends: string | null = null;
+
   if (input.useTrainingHistory) {
     // Try computed training history first
     trainingHistorySummary = await getTrainingHistorySummary(userId);
@@ -462,9 +476,60 @@ export async function generateProgram(
       }
       // Otherwise, fall back to generic defaults (trainingHistorySummary stays null)
     }
+
+    // Fetch longer-term progress trends (stalls, weight progression, volume trends)
+    const progressTrends = await getProgressTrends(userId);
+    if (progressTrends) {
+      formattedProgressTrends = formatProgressTrendsForPrompt(progressTrends);
+    }
   }
 
-  // 3. Build the base prompt
+  // 3. Handle template reuse
+  // Fetch selected templates, filter to only AI-generated ones not in active programs
+  let reuseTemplateData: Array<{
+    id: string;
+    name: string;
+    exercises: Array<{
+      exerciseId: string;
+      exerciseName: string;
+      workingSets: number;
+      targetReps: string | null;
+    }>;
+  }> | null = null;
+  const validReuseTemplateIds = new Set<string>();
+
+  if (input.reuseTemplateIds && input.reuseTemplateIds.length > 0) {
+    const templates = await getTemplatesByIds(input.reuseTemplateIds, userId);
+
+    // Filter: only AI-generated templates not currently in an active program
+    const safeTemplates = [];
+    for (const t of templates) {
+      if (!t.isAiGenerated) continue;
+      const inActiveProgram = await isTemplateUsedInActivePrograms(t.id);
+      if (!inActiveProgram) {
+        safeTemplates.push(t);
+      }
+    }
+
+    if (safeTemplates.length > 0) {
+      reuseTemplateData = safeTemplates.map(t => ({
+        id: t.id,
+        name: t.name,
+        exercises: t.exercises.map(e => ({
+          exerciseId: e.exerciseId,
+          exerciseName: e.exercise.name,
+          workingSets: e.workingSets,
+          targetReps: e.targetReps,
+        })),
+      }));
+
+      for (const t of safeTemplates) {
+        validReuseTemplateIds.add(t.id);
+      }
+    }
+  }
+
+  // 4. Build the base prompt
   const basePrompt = buildProgramGenerationPrompt({
     inspirationSource: input.inspirationSource,
     daysPerWeek: input.daysPerWeek,
@@ -474,10 +539,12 @@ export async function generateProgram(
     equipment: input.equipment,
     freeTextPreferences: input.freeTextPreferences,
     trainingHistory: trainingHistorySummary,
+    progressTrends: formattedProgressTrends,
+    existingTemplates: reuseTemplateData,
     exerciseCatalog: catalog,
   });
 
-  // 4. Call Gemini with retry logic
+  // 5. Call Gemini with retry logic
   let parsedResponse: GeminiProgramResponse | null = null;
   let promptTokens: number | undefined;
   let completionTokens: number | undefined;
@@ -493,7 +560,12 @@ export async function generateProgram(
       completionTokens = geminiResult.completionTokens;
 
       const parsed = parseGeminiResponse(geminiResult.text);
-      const validation = validateGeneratedProgram(parsed, exerciseIds, input.daysPerWeek);
+      const validation = validateGeneratedProgram(
+        parsed,
+        exerciseIds,
+        input.daysPerWeek,
+        validReuseTemplateIds.size > 0 ? validReuseTemplateIds : undefined
+      );
 
       if (validation.valid) {
         parsedResponse = parsed;
@@ -568,8 +640,7 @@ export async function generateProgram(
 
   const generationTimeMs = Date.now() - startTime;
 
-  // 5. Create templates and program using existing services
-  // Build an exercise name lookup from the catalog
+  // 6. Create/update templates and program using existing services
   const exerciseNameMap = new Map(catalog.map(e => [e.id, e.name]));
 
   const createdTemplates: Array<{
@@ -577,6 +648,7 @@ export async function generateProgram(
     dayLabel: string;
     templateId: string;
     templateName: string;
+    wasReused: boolean;
     exercises: Array<{
       exerciseId: string;
       name: string;
@@ -589,37 +661,65 @@ export async function generateProgram(
   }> = [];
 
   for (const workout of parsedResponse.workouts) {
-    const template = await createTemplate(userId, {
-      name: workout.templateName,
-      description: workout.templateDescription || undefined,
-      isAiGenerated: true,
-      aiPrompt: input.inspirationSource,
-      exercises: workout.exercises.map((e, idx) => ({
-        exerciseId: e.exerciseId,
-        orderIndex: e.orderIndex ?? idx,
-        warmupSets: e.warmupSets ?? 0,
-        workingSets: e.workingSets,
-        targetReps: e.targetReps || undefined,
-        restSeconds: e.restSeconds || undefined,
-        notes: e.notes || undefined,
-      })),
-    });
+    const exerciseInputs = workout.exercises.map((e, idx) => ({
+      exerciseId: e.exerciseId,
+      orderIndex: e.orderIndex ?? idx,
+      warmupSets: e.warmupSets ?? 0,
+      workingSets: e.workingSets,
+      targetReps: e.targetReps || undefined,
+      restSeconds: e.restSeconds || undefined,
+      notes: e.notes || undefined,
+    }));
 
-    createdTemplates.push({
-      dayNumber: workout.dayNumber,
-      dayLabel: workout.dayLabel,
-      templateId: template.id,
-      templateName: template.name,
-      exercises: workout.exercises.map((e, idx) => ({
-        exerciseId: e.exerciseId,
-        name: exerciseNameMap.get(e.exerciseId) || 'Unknown',
-        warmupSets: e.warmupSets ?? 0,
-        workingSets: e.workingSets,
-        targetReps: e.targetReps || null,
-        restSeconds: e.restSeconds || null,
-        notes: e.notes || null,
-      })),
-    });
+    const exerciseSummary = workout.exercises.map((e) => ({
+      exerciseId: e.exerciseId,
+      name: exerciseNameMap.get(e.exerciseId) || 'Unknown',
+      warmupSets: e.warmupSets ?? 0,
+      workingSets: e.workingSets,
+      targetReps: e.targetReps || null,
+      restSeconds: e.restSeconds || null,
+      notes: e.notes || null,
+    }));
+
+    // Reuse path: update existing template's exercises in-place
+    if (workout.reuseTemplateId && validReuseTemplateIds.has(workout.reuseTemplateId)) {
+      const updated = await updateTemplateExercises(
+        workout.reuseTemplateId,
+        userId,
+        exerciseInputs
+      );
+
+      if (!updated) {
+        throw new AiGenerationError('Failed to update reused template', 500);
+      }
+
+      createdTemplates.push({
+        dayNumber: workout.dayNumber,
+        dayLabel: workout.dayLabel,
+        templateId: workout.reuseTemplateId,
+        templateName: updated.name,
+        wasReused: true,
+        exercises: exerciseSummary,
+      });
+    } else {
+      // Create path: new template (existing behavior)
+      const template = await createTemplate(userId, {
+        name: workout.templateName,
+        description: workout.templateDescription || undefined,
+        isAiGenerated: true,
+        aiPrompt: input.inspirationSource,
+        exercises: exerciseInputs,
+      });
+
+      createdTemplates.push({
+        dayNumber: workout.dayNumber,
+        dayLabel: workout.dayLabel,
+        templateId: template.id,
+        templateName: template.name,
+        wasReused: false,
+        exercises: exerciseSummary,
+      });
+    }
   }
 
   // Create program
@@ -639,7 +739,7 @@ export async function generateProgram(
     })),
   });
 
-  // 6. Log successful generation (rate limit slot was already reserved by the caller)
+  // 7. Log successful generation (rate limit slot was already reserved by the caller)
   await logGenerationAttempt(userId, input, {
     success: true,
     programId: program.id,
@@ -672,6 +772,7 @@ export async function generateProgram(
           id: t.templateId,
           name: t.templateName,
           exerciseCount: t.exercises.length,
+          wasReused: t.wasReused,
           exercises: t.exercises,
         },
       })),

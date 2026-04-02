@@ -145,6 +145,32 @@ export async function isTemplateUsedInPrograms(templateId: string): Promise<bool
   return result.length > 0;
 }
 
+/**
+ * Check if a template is used in any ACTIVE program.
+ *
+ * Unlike isTemplateUsedInPrograms() which checks ALL programs, this only
+ * checks programs where isActive = true. Used by AI generation to decide
+ * whether a template is safe to modify in-place — we don't want to alter
+ * a template the user is currently training with in another program.
+ *
+ * Templates in deactivated programs are safe to reuse/modify.
+ */
+export async function isTemplateUsedInActivePrograms(templateId: string): Promise<boolean> {
+  const result = await db
+    .select({ id: programWeeks.id })
+    .from(programWeeks)
+    .innerJoin(workoutPrograms, eq(programWeeks.programId, workoutPrograms.id))
+    .where(
+      and(
+        eq(programWeeks.templateId, templateId),
+        eq(workoutPrograms.isActive, true)
+      )
+    )
+    .limit(1);
+
+  return result.length > 0;
+}
+
 // ============ Main Service Functions ============
 
 /**
@@ -470,22 +496,72 @@ export async function updateProgram(
 }
 
 /**
- * Delete a program (workouts cascade automatically, templates preserved)
+ * Delete a program.
+ *
+ * Template cleanup behavior:
+ * - deleteTemplates=false (default): program is deleted, all templates preserved
+ * - deleteTemplates=true: AI-generated templates linked to this program are
+ *   deleted UNLESS they're in keepTemplateIds or used in another program
+ * - keepTemplateIds: subset of templates the user wants to keep even when
+ *   deleteTemplates=true. Allows selective "keep these, delete the rest."
+ *
+ * The order matters: we collect template IDs first, delete the program
+ * (which cascades to programWeeks), then check each template. After the
+ * program is gone, isTemplateUsedInPrograms() only sees OTHER programs,
+ * so an orphaned template correctly returns false.
  */
 export async function deleteProgram(
   programId: string,
-  userId: string
-): Promise<boolean> {
+  userId: string,
+  deleteTemplates: boolean = false,
+  keepTemplateIds: string[] = []
+): Promise<{ deleted: boolean; templatesRemoved: number }> {
   const existing = await verifyProgramOwnership(programId, userId);
   if (!existing) {
-    return false;
+    return { deleted: false, templatesRemoved: 0 };
   }
 
+  if (!deleteTemplates) {
+    await db
+      .delete(workoutPrograms)
+      .where(eq(workoutPrograms.id, programId));
+    return { deleted: true, templatesRemoved: 0 };
+  }
+
+  // Collect template IDs linked to this program before deleting
+  const linkedTemplates = await db
+    .select({
+      templateId: programWeeks.templateId,
+      isAiGenerated: workoutTemplates.isAiGenerated,
+    })
+    .from(programWeeks)
+    .innerJoin(workoutTemplates, eq(programWeeks.templateId, workoutTemplates.id))
+    .where(eq(programWeeks.programId, programId));
+
+  // Only consider AI-generated templates for cleanup, excluding any the user wants to keep
+  const keepSet = new Set(keepTemplateIds);
+  const aiTemplateIds = linkedTemplates
+    .filter(t => t.isAiGenerated && !keepSet.has(t.templateId))
+    .map(t => t.templateId);
+
+  // Delete the program (cascades to programWeeks)
   await db
     .delete(workoutPrograms)
     .where(eq(workoutPrograms.id, programId));
 
-  return true;
+  // Clean up orphaned AI templates (skip any the user chose to keep)
+  let templatesRemoved = 0;
+  for (const templateId of aiTemplateIds) {
+    const stillUsed = await isTemplateUsedInPrograms(templateId);
+    if (!stillUsed) {
+      await db
+        .delete(workoutTemplates)
+        .where(eq(workoutTemplates.id, templateId));
+      templatesRemoved++;
+    }
+  }
+
+  return { deleted: true, templatesRemoved };
 }
 
 /**

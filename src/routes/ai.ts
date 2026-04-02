@@ -135,6 +135,21 @@ function validateGenerateProgramInput(body: any): ValidationError | ValidationSu
     }
   }
 
+  // reuseTemplateIds — optional array of UUIDs
+  if (body.reuseTemplateIds !== undefined) {
+    if (!Array.isArray(body.reuseTemplateIds)) {
+      errors.push('reuseTemplateIds must be an array');
+    } else if (body.reuseTemplateIds.length > 7) {
+      errors.push('reuseTemplateIds cannot have more than 7 entries');
+    } else {
+      for (const id of body.reuseTemplateIds) {
+        if (!isValidUuid(id)) {
+          errors.push(`reuseTemplateIds contains invalid UUID: ${id}`);
+        }
+      }
+    }
+  }
+
   if (errors.length > 0) {
     return { valid: false, errors };
   }
@@ -151,6 +166,7 @@ function validateGenerateProgramInput(body: any): ValidationError | ValidationSu
       useTrainingHistory,
       manualStrengthData: body.manualStrengthData,
       freeTextPreferences: body.freeTextPreferences?.trim(),
+      reuseTemplateIds: body.reuseTemplateIds,
     },
   };
 }

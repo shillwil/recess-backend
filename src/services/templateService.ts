@@ -303,6 +303,113 @@ export async function getTemplateById(
 }
 
 /**
+ * Batch-fetch multiple templates with their exercises. Used by AI generation
+ * to pass existing templates into the Gemini prompt for potential reuse.
+ *
+ * This is a batch version of getTemplateById() — uses a single query with
+ * IN (...) instead of N separate queries, avoiding the N+1 problem when
+ * the user selects several templates for reuse.
+ *
+ * Only returns templates belonging to the given user.
+ */
+export async function getTemplatesByIds(
+  templateIds: string[],
+  userId: string
+): Promise<TemplateDetail[]> {
+  if (templateIds.length === 0) return [];
+
+  // Fetch templates that belong to this user
+  const templates = await db
+    .select({
+      id: workoutTemplates.id,
+      name: workoutTemplates.name,
+      description: workoutTemplates.description,
+      isPublic: workoutTemplates.isPublic,
+      isAiGenerated: workoutTemplates.isAiGenerated,
+      createdAt: workoutTemplates.createdAt,
+      updatedAt: workoutTemplates.updatedAt,
+    })
+    .from(workoutTemplates)
+    .where(
+      and(
+        inArray(workoutTemplates.id, templateIds),
+        eq(workoutTemplates.userId, userId)
+      )
+    );
+
+  if (templates.length === 0) return [];
+
+  const foundIds = templates.map(t => t.id);
+
+  // Batch-fetch all exercises for all found templates
+  const allExercises = await db
+    .select({
+      id: templateExercises.id,
+      templateId: templateExercises.templateId,
+      exerciseId: templateExercises.exerciseId,
+      orderIndex: templateExercises.orderIndex,
+      warmupSets: templateExercises.warmupSets,
+      workingSets: templateExercises.workingSets,
+      targetReps: templateExercises.targetReps,
+      restSeconds: templateExercises.restSeconds,
+      notes: templateExercises.notes,
+      exercise: {
+        id: exercises.id,
+        name: exercises.name,
+        primaryMuscles: exercises.primaryMuscles,
+        equipment: exercises.equipment,
+        thumbnailUrl: exercises.thumbnailUrl,
+        videoUrl: exercises.videoUrl,
+      },
+    })
+    .from(templateExercises)
+    .innerJoin(exercises, eq(templateExercises.exerciseId, exercises.id))
+    .where(inArray(templateExercises.templateId, foundIds))
+    .orderBy(asc(templateExercises.orderIndex));
+
+  // Group exercises by templateId
+  const exercisesByTemplate = new Map<string, TemplateExerciseDetail[]>();
+  for (const te of allExercises) {
+    const detail: TemplateExerciseDetail = {
+      id: te.id,
+      exerciseId: te.exerciseId,
+      orderIndex: te.orderIndex,
+      warmupSets: te.warmupSets ?? 0,
+      workingSets: te.workingSets,
+      targetReps: te.targetReps,
+      restSeconds: te.restSeconds,
+      notes: te.notes,
+      exercise: {
+        id: te.exercise.id,
+        name: te.exercise.name,
+        primaryMuscles: (te.exercise.primaryMuscles as string[]) || [],
+        equipment: te.exercise.equipment,
+        thumbnailUrl: te.exercise.thumbnailUrl,
+        videoUrl: te.exercise.videoUrl,
+      },
+    };
+
+    const existing = exercisesByTemplate.get(te.templateId);
+    if (existing) {
+      existing.push(detail);
+    } else {
+      exercisesByTemplate.set(te.templateId, [detail]);
+    }
+  }
+
+  return templates.map(t => ({
+    id: t.id,
+    name: t.name,
+    description: t.description,
+    isPublic: t.isPublic ?? false,
+    isAiGenerated: t.isAiGenerated ?? false,
+    exercises: exercisesByTemplate.get(t.id) || [],
+    createdAt: t.createdAt.toISOString(),
+    updatedAt: t.updatedAt.toISOString(),
+  }));
+}
+
+/**
  * Create a new template with exercises
  */
 export async function createTemplate(

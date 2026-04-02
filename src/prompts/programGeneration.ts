@@ -7,6 +7,17 @@ export interface ProgramGenerationPromptParams {
   equipment: string[];
   freeTextPreferences?: string;
   trainingHistory?: string | null;
+  progressTrends?: string | null;
+  existingTemplates?: Array<{
+    id: string;
+    name: string;
+    exercises: Array<{
+      exerciseId: string;
+      exerciseName: string;
+      workingSets: number;
+      targetReps: string | null;
+    }>;
+  }> | null;
   exerciseCatalog: Array<{
     id: string;
     name: string;
@@ -37,6 +48,8 @@ ${params.freeTextPreferences ? `- **Additional preferences**: ${params.freeTextP
 
 ${params.trainingHistory ? `## USER TRAINING HISTORY\n${params.trainingHistory}\n\nUse this data to:\n- Set appropriate starting weights in notes where relevant\n- Address weak points (muscle groups with low volume)\n- Build on exercises the user is already familiar with\n- Avoid dramatic jumps in intensity or volume from their current training` : `## NO TRAINING HISTORY AVAILABLE\nProgram for a general ${params.experienceLevel} trainee.`}
 
+${params.progressTrends ? `## USER PROGRESS TRENDS\n${params.progressTrends}\n\nUse this data to:\n- Address stalled exercises by varying rep ranges, exercise selection, or programming deloads\n- Continue progressive overload on exercises showing positive trends\n- Match volume to the user's recent training capacity (don't double their weekly sets overnight)\n- Use weight progression data to set realistic starting weights in notes` : ''}
+
 ## TRAINING PHILOSOPHY GUIDANCE
 
 When the user references a specific person or training style, apply these principles:
@@ -51,6 +64,21 @@ When the user references a specific person or training style, apply these princi
 If the user names someone not listed above, use your knowledge of that person's publicly shared training content (YouTube, social media, interviews) to infer their programming style and apply similar principles.
 
 If the user gives a general description (e.g., "hypertrophy", "get stronger", "lean out"), apply evidence-based programming principles appropriate to that goal without tying to a specific person.
+
+${params.existingTemplates && params.existingTemplates.length > 0 ? `## EXISTING TEMPLATES AVAILABLE FOR REUSE
+
+The user wants to reuse and refresh these existing templates. You may keep their exercises as-is or modify them (swap exercises, adjust sets/reps). When reusing a template, set "reuseTemplateId" to its ID and provide the (potentially updated) exercises array.
+
+${JSON.stringify(params.existingTemplates.map(t => ({
+  id: t.id,
+  name: t.name,
+  exercises: t.exercises.map(e => ({
+    exerciseId: e.exerciseId,
+    name: e.exerciseName,
+    workingSets: e.workingSets,
+    targetReps: e.targetReps,
+  })),
+})), null, 2)}` : ''}
 
 ## EXERCISE CATALOG
 
@@ -81,6 +109,7 @@ Return ONLY valid JSON matching this exact structure. No markdown, no explanatio
       "dayLabel": "string — e.g., 'Push Day', 'Upper Body A', 'Day 1 — Chest & Triceps'",
       "templateName": "string — name for this workout template",
       "templateDescription": "string — brief description of this workout focus",
+      "reuseTemplateId": "optional — UUID of an existing template to update instead of creating new",
       "exercises": [
         {
           "exerciseId": "string — UUID from the catalog above",
@@ -109,7 +138,8 @@ Return ONLY valid JSON matching this exact structure. No markdown, no explanatio
 9. targetReps: string format like "8-12", "5", "10-15", "6-8"
 10. restSeconds: 30-300 (shorter for isolation, longer for heavy compounds)
 11. Notes should include practical coaching cues, not generic filler.
-12. Return ONLY the JSON object. No other text.`;
+12. Return ONLY the JSON object. No other text.
+13. If existing templates are provided and you choose to reuse one, set reuseTemplateId to the template's ID. You MUST still provide the full exercises array (modified or unchanged).`;
 }
 
 export function buildRetryPrompt(originalPrompt: string, errors: string[]): string {

@@ -285,24 +285,46 @@ router.put('/:id', programWriteLimiter, async (req: AuthenticatedRequest, res: R
 
 /**
  * DELETE /api/programs/:id
- * Delete program (workouts cascade, templates preserved)
+ * Delete program. Supports selective template cleanup via request body.
+ *
+ * Query param: ?deleteTemplates=true to enable template cleanup
+ * Body (optional): { keepTemplateIds: ["uuid-1", "uuid-2"] }
+ *   - Templates in this list will be preserved even when deleteTemplates=true
+ *   - Omit or send empty array to delete all orphaned AI templates
  */
 router.delete('/:id', programWriteLimiter, async (req: AuthenticatedRequest, res: Response) => {
   const correlationId = getCorrelationId(req);
   try {
     const { id } = req.params;
+    const deleteTemplates = req.query.deleteTemplates === 'true';
 
     if (!isValidUuid(id)) {
       sendErrorResponse(res, 400, 'Invalid program ID format', undefined, correlationId);
       return;
     }
 
+    // Validate keepTemplateIds if provided
+    let keepTemplateIds: string[] = [];
+    if (deleteTemplates && req.body?.keepTemplateIds) {
+      if (!Array.isArray(req.body.keepTemplateIds)) {
+        sendErrorResponse(res, 400, 'keepTemplateIds must be an array', undefined, correlationId);
+        return;
+      }
+      for (const keepId of req.body.keepTemplateIds) {
+        if (!isValidUuid(keepId)) {
+          sendErrorResponse(res, 400, `keepTemplateIds contains invalid UUID: ${keepId}`, undefined, correlationId);
+          return;
+        }
+      }
+      keepTemplateIds = req.body.keepTemplateIds;
+    }
+
     // Get user
     const user = await getOrCreateUser(req.user!);
 
-    const deleted = await deleteProgram(id, user.id);
+    const result = await deleteProgram(id, user.id, deleteTemplates, keepTemplateIds);
 
-    if (!deleted) {
+    if (!result.deleted) {
       res.status(404).json({
         success: false,
         message: 'Program not found',
@@ -313,12 +335,14 @@ router.delete('/:id', programWriteLimiter, async (req: AuthenticatedRequest, res
 
     logInfo('DELETE /api/programs/:id', 'Program deleted', correlationId, {
       userId: user.id,
-      programId: id
+      programId: id,
+      templatesRemoved: result.templatesRemoved,
     });
 
     res.json({
       success: true,
       message: 'Program deleted successfully',
+      data: { templatesRemoved: result.templatesRemoved },
       correlationId
     });
   } catch (error) {

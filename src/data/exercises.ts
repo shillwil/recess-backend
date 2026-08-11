@@ -72,7 +72,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Dumbbell Chest Bench Press',
-    videoFilename: 'Dumbell Chest Bench Press_1080p.mp4',
+    videoFilename: 'Dumbbell Chest Press.mp4',
     primaryMuscles: ['chest'],
     secondaryMuscles: ['triceps', 'shoulders'],
     equipment: 'dumbbell',
@@ -92,7 +92,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Incline Dumbbell Press',
-    videoFilename: 'Incline Dumbell Press_1080p.mp4',
+    videoFilename: 'Incline Dumbbell Chest Press.mp4',
     primaryMuscles: ['chest'],
     secondaryMuscles: ['shoulders', 'triceps'],
     equipment: 'dumbbell',
@@ -112,7 +112,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Machine Chest Press',
-    videoFilename: 'Machine Chest Press_1080p.mp4',
+    videoFilename: 'Machine Chest Press.mp4',
     primaryMuscles: ['chest'],
     secondaryMuscles: ['triceps', 'shoulders'],
     equipment: 'machine',
@@ -132,7 +132,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'One Arm Machine Fly',
-    videoFilename: 'One Arm Machine Fly_1080p.mp4',
+    videoFilename: 'Single Arm Pec Deck Fly.mp4',
     primaryMuscles: ['chest'],
     secondaryMuscles: ['shoulders'],
     equipment: 'machine',
@@ -152,7 +152,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Smith Machine Chest Press Flat',
-    videoFilename: 'Smith Machine Chest Press Flat_1080p.mp4',
+    videoFilename: 'Smith Machine Bench Press.mp4',
     primaryMuscles: ['chest'],
     secondaryMuscles: ['triceps', 'shoulders'],
     equipment: 'smith machine',
@@ -162,7 +162,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Smith Machine Incline Chest Press',
-    videoFilename: 'Smith Machine Incline Chest Press_1080p.mp4',
+    videoFilename: 'Smith Machine Incline Chest Press.mp4',
     primaryMuscles: ['chest'],
     secondaryMuscles: ['shoulders', 'triceps'],
     equipment: 'smith machine',
@@ -172,7 +172,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Dips',
-    videoFilename: 'Dips_1080p.mp4',
+    videoFilename: 'Dips.mp4',
     primaryMuscles: ['chest', 'triceps'],
     secondaryMuscles: ['shoulders'],
     equipment: 'bodyweight',
@@ -182,7 +182,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Bench Dips',
-    videoFilename: 'Bench Dips_1080p.mp4',
+    videoFilename: 'Bench Dips.mp4',
     primaryMuscles: ['triceps'],
     secondaryMuscles: ['chest', 'shoulders'],
     equipment: 'bodyweight',
@@ -203,8 +203,8 @@ export const exerciseSeedData: ExerciseSeedData[] = [
     exerciseType: 'compound',
   },
   {
-    name: 'Lat Pulldown',
-    videoFilename: 'Lat Pulldown_1080p.mp4',
+    name: 'Lat Pulldown Machine',
+    videoFilename: 'Lat Pulldown Machine.mp4',
     primaryMuscles: ['lats'],
     secondaryMuscles: ['biceps', 'back'],
     equipment: 'cable',
@@ -234,7 +234,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'One Arm Lat Pulldown',
-    videoFilename: 'One Arm Lat Pulldown_1080p.mp4',
+    videoFilename: 'Single Arm Lat Pulldown.mp4',
     primaryMuscles: ['lats'],
     secondaryMuscles: ['biceps', 'back'],
     equipment: 'cable',
@@ -254,7 +254,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Chin Up',
-    videoFilename: 'Chin Up_1080p.mp4',
+    videoFilename: 'Chin Ups.mp4',
     primaryMuscles: ['lats', 'biceps'],
     secondaryMuscles: ['back'],
     equipment: 'bodyweight',
@@ -264,7 +264,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Close Grip Pullup',
-    videoFilename: 'Close Grip Pullup_1080p.mp4',
+    videoFilename: 'Close Grip Pullup.mp4',
     primaryMuscles: ['lats'],
     secondaryMuscles: ['biceps', 'back'],
     equipment: 'bodyweight',
@@ -274,7 +274,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Wide Grip Pullup',
-    videoFilename: 'Wide Grip Pullup_1080p.mp4',
+    videoFilename: 'Wide Grip Pullup.mp4',
     primaryMuscles: ['lats'],
     secondaryMuscles: ['biceps', 'back'],
     equipment: 'bodyweight',
@@ -314,7 +314,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Wide Grip Seated Cable Row',
-    videoFilename: 'Wide Grip Seated Cable Row_1080p.mp4',
+    videoFilename: 'Neutral-Grip Seated Cable Row_1080p.mp4',
     primaryMuscles: ['back', 'lats'],
     secondaryMuscles: ['biceps'],
     equipment: 'cable',
@@ -324,7 +324,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Meadows Row',
-    videoFilename: 'Meadows Row_1080p.mp4',
+    videoFilename: 'Meadows Row.mp4',
     primaryMuscles: ['back', 'lats'],
     secondaryMuscles: ['biceps'],
     equipment: 'barbell',
@@ -334,7 +334,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Pendlay Deficit Row',
-    videoFilename: 'Pendlay Deficit Row_1080p.mp4',
+    videoFilename: 'Pendlay Deficit Row.mp4',
     primaryMuscles: ['back', 'lats'],
     secondaryMuscles: ['biceps', 'hamstrings'],
     equipment: 'barbell',
@@ -344,7 +344,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Smith Machine Back Thing',
-    videoFilename: 'Smith Machine Back Thing_1080p.mp4',
+    videoFilename: 'Smith Machine-Overhand-Grip Bent-Over Row.mp4',
     primaryMuscles: ['back'],
     secondaryMuscles: ['lats', 'biceps'],
     equipment: 'smith machine',
@@ -354,7 +354,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Machine Back Fly',
-    videoFilename: 'Machine Back Fly_1080p.mp4',
+    videoFilename: 'Reverse Fly Machine.mp4',
     primaryMuscles: ['back', 'shoulders'],
     secondaryMuscles: ['traps'],
     equipment: 'machine',
@@ -366,7 +366,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   // === SHOULDER EXERCISES ===
   {
     name: 'Dumbbell Shoulder Press',
-    videoFilename: 'Dumbell Shoulder Press_1080p.mp4',
+    videoFilename: 'Dumbbell Seated Shoulder Press.mp4',
     primaryMuscles: ['shoulders'],
     secondaryMuscles: ['triceps'],
     equipment: 'dumbbell',
@@ -376,7 +376,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Seated DB Shoulder Press',
-    videoFilename: 'Seated DB Shoulder Press_1080p.mp4',
+    videoFilename: 'Dumbbell Seated Shoulder Press.mp4',
     primaryMuscles: ['shoulders'],
     secondaryMuscles: ['triceps'],
     equipment: 'dumbbell',
@@ -480,7 +480,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   // === TRICEPS EXERCISES ===
   {
     name: 'Tricep Pulldown',
-    videoFilename: 'Tricep Pulldown_1080p.mp4',
+    videoFilename: 'Cable Tricep Pushdown.mp4',
     primaryMuscles: ['triceps'],
     secondaryMuscles: [],
     equipment: 'cable',
@@ -500,7 +500,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Skull Crusher',
-    videoFilename: 'Skull Crusher_1080p.mp4',
+    videoFilename: 'Barbell Skull Crusher.mp4',
     primaryMuscles: ['triceps'],
     secondaryMuscles: [],
     equipment: 'barbell',
@@ -510,7 +510,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Dumbbell Skull Crusher',
-    videoFilename: 'Dumbell Skull Crusher_1080p.mp4',
+    videoFilename: 'Dumbbell Skull Crusher.mp4',
     primaryMuscles: ['triceps'],
     secondaryMuscles: [],
     equipment: 'dumbbell',
@@ -542,7 +542,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Smith Machine Squat',
-    videoFilename: 'Smith Machine Squat_1080p.mp4',
+    videoFilename: 'Smith Machine Squat.mp4',
     primaryMuscles: ['quads', 'glutes'],
     secondaryMuscles: ['hamstrings'],
     equipment: 'smith machine',
@@ -552,7 +552,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Leg Press',
-    videoFilename: 'Leg Press_1080p.mp4',
+    videoFilename: 'Leg Press Machine.mp4',
     primaryMuscles: ['quads', 'glutes'],
     secondaryMuscles: ['hamstrings'],
     equipment: 'machine',
@@ -562,7 +562,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Dumbbell Lunge',
-    videoFilename: 'Dumbell Lunge_1080p.mp4',
+    videoFilename: 'Dumbbell Walking Lunge.mp4',
     primaryMuscles: ['quads', 'glutes'],
     secondaryMuscles: ['hamstrings'],
     equipment: 'dumbbell',
@@ -572,7 +572,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Smith Machine Lunge',
-    videoFilename: 'Smith Machine Lunge_1080p.mp4',
+    videoFilename: 'Smith Machine Lunge.mp4',
     primaryMuscles: ['quads', 'glutes'],
     secondaryMuscles: ['hamstrings'],
     equipment: 'smith machine',
@@ -622,7 +622,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Machine Hip Abduction',
-    videoFilename: 'Machine Hip abduction_1080p.mp4',
+    videoFilename: 'Hip Abduction Machine.mp4',
     primaryMuscles: ['glutes'],
     secondaryMuscles: [],
     equipment: 'machine',
@@ -632,7 +632,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Machine Hip Adduction',
-    videoFilename: 'Machine Hip-Adduction_1080p.mp4',
+    videoFilename: 'Hip Adduction Machine.mp4',
     primaryMuscles: ['glutes'],
     secondaryMuscles: [],
     equipment: 'machine',
@@ -644,7 +644,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   // === TRAPS EXERCISES ===
   {
     name: 'Dumbbell Shoulder Shrug',
-    videoFilename: 'Dumbell Shoulder Shrug_1080p.mp4',
+    videoFilename: 'Dumbbell Shoulder Shrug.mp4',
     primaryMuscles: ['traps'],
     secondaryMuscles: ['shoulders'],
     equipment: 'dumbbell',
@@ -654,7 +654,7 @@ export const exerciseSeedData: ExerciseSeedData[] = [
   },
   {
     name: 'Shrug with Bar',
-    videoFilename: 'Shrug with bar_1080p.mp4',
+    videoFilename: 'Barbell Shrug.mp4',
     primaryMuscles: ['traps'],
     secondaryMuscles: ['shoulders'],
     equipment: 'barbell',

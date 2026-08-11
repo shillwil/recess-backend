@@ -123,6 +123,16 @@ import { normalizeExerciseData } from './syncHelpers';
 import { recordExerciseUsage } from './exerciseService';
 import { logWarn } from '../utils/errorResponse';
 
+// Maps legacy exercise names (still synced by older clients) to their current
+// library names, so renamed exercises aren't recreated as orphan custom exercises
+const LEGACY_EXERCISE_NAMES: Record<string, string> = {
+  'Lat Pulldown': 'Lat Pulldown Machine',
+};
+
+export function resolveLegacyExerciseName(name: string): string | undefined {
+  return LEGACY_EXERCISE_NAMES[name];
+}
+
 export class SyncService {
   private static readonly CONFLICT_THRESHOLD_MS = 5000; // 5 seconds
 
@@ -706,6 +716,20 @@ export class SyncService {
 
     if (existingExercise.length > 0) {
       return existingExercise[0].id;
+    }
+
+    // Older clients may sync a name that was since renamed in the library -
+    // retry the lookup with the current name before creating a custom exercise
+    const currentName = resolveLegacyExerciseName(name);
+    if (currentName) {
+      const renamedExercise = await db.select()
+        .from(exercises)
+        .where(eq(exercises.name, currentName))
+        .limit(1);
+
+      if (renamedExercise.length > 0) {
+        return renamedExercise[0].id;
+      }
     }
 
     // Create new exercise

@@ -103,7 +103,7 @@ const EXERCISE_ALIASES: Record<string, string[]> = {
     'chinup',
     'chin-up'
   ],
-  'Lat Pulldown': [
+  'Lat Pulldown Machine': [
     'lat pull down',
     'pulldown',
     'pull down',

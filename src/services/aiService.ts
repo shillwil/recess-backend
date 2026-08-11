@@ -399,6 +399,11 @@ async function callGemini(
     model: aiConfig.gemini.model,
     generationConfig: {
       responseMimeType: 'application/json',
+      // Default sampling was biasing outputs toward the "safe middle" (e.g.,
+      // always workingSets=3). Loosening here gives the prompt's experience-
+      // level guidance room to express itself.
+      temperature: 1.0,
+      topP: 0.95,
     },
   });
 

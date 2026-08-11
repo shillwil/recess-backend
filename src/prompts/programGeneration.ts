@@ -54,12 +54,12 @@ ${params.progressTrends ? `## USER PROGRESS TRENDS\n${params.progressTrends}\n\n
 
 When the user references a specific person or training style, apply these principles:
 
-- **Jeff Nippard / Science-based**: High volume (16-22 sets/muscle/week), compound-first then isolation, 3-4 working sets per exercise, 6-12 reps for hypertrophy, RPE 7-9, 60-120s rest, emphasize progressive overload, include both strength and hypertrophy rep ranges across the week.
+- **Jeff Nippard / Science-based**: High volume (16-22 sets/muscle/week), compound-first then isolation, 4-5 working sets per exercise (5-6 for advanced lifters), 6-12 reps for hypertrophy, RPE 7-9, 60-120s rest, emphasize progressive overload, include both strength and hypertrophy rep ranges across the week.
 - **Mike Mentzer / HIT (High Intensity Training)**: Minimal volume (4-8 sets/muscle/week), 1-2 working sets per exercise taken to absolute failure, 6-10 reps, maximum intensity, longer rest 2-3 minutes, fewer exercises per session (4-6 total), focus on compound movements, every set counts.
 - **Classic Bodybuilding (Arnold, Golden Era)**: High volume with supersets, 4-5 working sets, 8-15 reps, moderate rest 60-90s, isolation work for each head/angle of the muscle, training each muscle 2x/week.
 - **Powerbuilding (Jeff Nippard Powerbuilding, PHUL-style)**: Starts with heavy compound (3-5 reps, RPE 9), followed by hypertrophy accessory work (8-12 reps), 4-6 exercises per session.
 - **Strength/Powerlifting**: Low reps (1-5), high sets (5-6), long rest (3-5 min), squat/bench/deadlift focus, minimal isolation.
-- **Chris Bumstead / Modern Classic Physique**: PPL or Bro split, moderate-high volume, 3-4 sets per exercise, 8-12 reps, emphasis on mind-muscle connection, aesthetic proportions, balanced development.
+- **Chris Bumstead / Modern Classic Physique**: PPL or Bro split, moderate-high volume, 4-5 sets per exercise, 8-12 reps, emphasis on mind-muscle connection, aesthetic proportions, balanced development.
 
 If the user names someone not listed above, use your knowledge of that person's publicly shared training content (YouTube, social media, interviews) to infer their programming style and apply similar principles.
 
@@ -115,7 +115,7 @@ Return ONLY valid JSON matching this exact structure. No markdown, no explanatio
           "exerciseId": "string — UUID from the catalog above",
           "orderIndex": 0,
           "warmupSets": 2,
-          "workingSets": 3,
+          "workingSets": 4,
           "targetReps": "8-12",
           "restSeconds": 90,
           "notes": "string — coaching cues, intensity technique, or weight guidance"
@@ -134,7 +134,13 @@ Return ONLY valid JSON matching this exact structure. No markdown, no explanatio
 5. Balance muscle groups across the week — every major muscle group should be trained at least once.
 6. Order exercises within each workout: compound movements first, isolation last.
 7. warmupSets: 0-3 (more for heavy compounds, fewer for isolation)
-8. workingSets: 1-6 (depends on training philosophy)
+8. workingSets: scale by the user's experience level. Do NOT default to 3 sets.
+   - beginner: 3-5 working sets per exercise
+   - intermediate: 4-6 working sets per exercise
+   - advanced: 4-6 working sets per exercise
+   Only drop below 3 when the chosen training philosophy explicitly demands it (e.g., Mentzer HIT).
+   Bias toward the UPPER end of the range for compound lifts and primary movers,
+   and toward the LOWER end for isolation work and secondary accessories.
 9. targetReps: string format like "8-12", "5", "10-15", "6-8"
 10. restSeconds: 30-300 (shorter for isolation, longer for heavy compounds)
 11. Notes should include practical coaching cues, not generic filler.

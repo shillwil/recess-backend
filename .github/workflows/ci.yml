@@ -1,0 +1,58 @@
+name: Backend CI
+
+# Typecheck, tests, and a migration drift check.
+# This is the status check that guards pull requests into staging and main.
+
+on:
+  push:
+    branches:
+      - "claude/**"
+      - "feature/**"
+  pull_request:
+    branches:
+      - staging
+      - main
+
+concurrency:
+  group: backend-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Typecheck, tests, migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: npm test
+
+      # Deploys run `npm run db:migrate` on start, so a schema change without a
+      # matching migration (or a hand-edited migration) reaches a real database.
+      # drizzle-kit only compares schema.ts with the snapshot here; the URL is a
+      # placeholder and nothing connects to it.
+      - name: Check schema and migrations are in sync
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+        run: |
+          npx drizzle-kit generate
+          if [ -n "$(git status --porcelain drizzle)" ]; then
+            echo "::error::src/db/schema.ts has changes with no matching migration. Run 'npm run db:generate' and commit the result."
+            git status --short drizzle
+            exit 1
+          fi

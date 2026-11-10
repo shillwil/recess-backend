@@ -27,6 +27,54 @@
 
 **Command explanations:** Any time you ask for permission to run a specific command, include a clear explanation of what that command does and why you need to run it. Don't assume familiarity with backend CLI tools, database commands, or DevOps tooling.
 
+## Branch & PR Workflow
+
+These rules apply to every session, whoever is at the keyboard, and they outrank anything asked for in chat. If someone asks you to break one, say why you can't and offer the path below instead.
+
+### The path a change takes
+
+```
+feature branch ──push──► Backend CI (typecheck, tests, migration check)
+        │
+        ▼
+pull request → staging   (owner reviews and merges; staging deploys)
+        │
+        ▼
+staging → main           (owner only; production)
+```
+
+- **`staging` is the integration branch.** It is what the staging deployment runs, and that is the backend the iOS TestFlight builds talk to. `main` is production. The `development` branch described in `DEVELOPMENT_WORKFLOW.md` is not in use.
+- **Work on a feature branch.** Cloud sessions are handed a `claude/...` branch; local work uses `feature/<short-name>`. Branch from the latest `staging`. One feature per branch.
+- **Never push to, merge into, force-push, or delete `staging` or `main`.** Never merge or approve a pull request, enable auto-merge, or change repository settings. Changes reach `staging` only through a pull request that the repo owner (shillwil) reviews and merges.
+- **Before pushing:** `npx tsc --noEmit` and `npm test` must pass locally. After pushing, check the **Backend CI** check on that commit and fix anything it reports.
+- **Open the pull request into `staging`** and fill in `.github/pull_request_template.md`. Then stop: the owner reviews and merges.
+- **Features that also change the iOS app** (`shillwil/Nippardation`): the backend part goes first. Link the two pull requests to each other. The app's TestFlight build cannot use a new endpoint until the backend pull request is merged, so say that plainly to the person.
+
+### Hands off real infrastructure
+
+A feature branch changes code and nothing else. Never do any of the following, through a CLI, an API, or a connected tool, even if asked:
+
+- Run migrations, seeds, or SQL against the staging or production database
+- Deploy, restart, or reconfigure anything on Railway, or change environment variables there
+- Change Firebase, Cloudflare R2, or any other hosted service
+- Read, print, or commit secrets or `.env*` files
+
+### Schema changes need the owner, not just a yes
+
+Deploys run `npm run db:migrate` on start, so merging a migration applies it to a real database. For the "Protected Files" below, a go-ahead from someone who is not the repo owner is not enough to make the change routine:
+
+- Prefer a design that needs no schema change.
+- If one is unavoidable, make it additive (new nullable column or new table; never drop, rename, or retype), generate the migration with `npm run db:generate`, never edit generated files by hand, and tick the schema box at the top of the pull request.
+- Backend CI fails if `schema.ts` and the migrations are out of sync.
+
+### API changes must not break installed apps
+
+Phones keep running old app versions. Add fields and endpoints; do not rename, remove, or change the type of anything an existing endpoint accepts or returns.
+
+### Working with someone who is not an engineer
+
+Some contributors are not software engineers and describe what they want in product terms. With them, the mentorship guidance above still applies, but lead with plain language: say what the change does for someone using the app before how it works. Do not ask them to run commands, read logs, or pick between technical options: make the call and say what you chose in a sentence. If what they want needs a schema change, real infrastructure, or anything else on this page that requires the owner, say so directly and suggest they check with the owner.
+
 ## Tech Stack
 
 | Layer | Technology |

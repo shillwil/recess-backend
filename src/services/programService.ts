@@ -159,7 +159,8 @@ async function assertTemplatesOwned(templateIds: string[], userId: string): Prom
  * Throws unless every workout sits on a day inside a rotation of `daysPerWeek` days.
  *
  * Routes run the same check before calling the service, but against a daysPerWeek they
- * read earlier. This one runs against the locked row, so it is the one that counts.
+ * read earlier. This one runs inside the transaction, against the daysPerWeek the program
+ * will have (the request's value, otherwise the locked row's), so it is the one that counts.
  */
 function assertWorkoutsFitRotation(workouts: ProgramWorkoutInput[], daysPerWeek: number): void {
   const outside = workouts.find(w => w.dayNumber < 0 || w.dayNumber >= daysPerWeek);
@@ -177,9 +178,8 @@ type ProgramTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 /**
  * Loads the user's program and locks its row until the transaction ends (SELECT ... FOR UPDATE).
  *
- * Two saves of the same program now run one after the other instead of interleaving, and
- * anything decided from the returned row (daysPerWeek, currentDayIndex) is still true when
- * the transaction writes.
+ * Concurrent writes to one program run one after the other, and anything decided from the
+ * returned row (daysPerWeek, currentDayIndex) is still true when the transaction writes.
  */
 async function lockOwnedProgram(
   tx: ProgramTransaction,
@@ -243,7 +243,7 @@ export interface ProgramUpdatePlan {
  *   program will have after the update.
  * - Without a rotation, lowering daysPerWeek drops the stored days that no longer fit.
  *   Older app builds save in two requests (this one, then PUT /:id/workouts with the full
- *   rotation); refusing here made it impossible for them to ever remove a day.
+ *   rotation); refusing here would make it impossible for them to remove a day.
  * - currentDayIndex goes back to 0 when the new daysPerWeek would leave it past the end.
  *
  * No database access, so these rules can be unit-tested directly.
@@ -602,35 +602,25 @@ export async function updateProgram(
     await assertTemplatesOwned(updates.workouts.map(w => w.templateId), userId);
   }
 
-  const updated = await db.transaction(async (tx) => {
+  const outcome = await db.transaction(async (tx) => {
     const existing = await lockOwnedProgram(tx, programId, userId);
     if (!existing) {
-      return false;
+      return null;
     }
 
     const plan = planProgramUpdate(existing, updates);
+    let droppedDays: (typeof programWeeks.$inferSelect)[] = [];
 
     if (plan.replaceWorkouts !== undefined) {
       await replaceRotation(tx, programId, plan.replaceWorkouts);
     } else if (plan.trimFromDay !== undefined) {
-      const trimmed = await tx
+      droppedDays = await tx
         .delete(programWeeks)
         .where(and(
           eq(programWeeks.programId, programId),
           gte(programWeeks.dayNumber, plan.trimFromDay)
         ))
         .returning();
-
-      if (trimmed.length > 0) {
-        // Record what was dropped: if the follow-up PUT /:id/workouts never arrives,
-        // this is the only trace of which days the program had.
-        logInfo('programService.updateProgram', 'Dropped rotation days that no longer fit daysPerWeek', correlationId, {
-          programId,
-          previousDaysPerWeek: existing.daysPerWeek,
-          daysPerWeek: plan.trimFromDay,
-          droppedDays: trimmed.map(({ dayNumber, templateId, dayLabel }) => ({ dayNumber, templateId, dayLabel }))
-        });
-      }
     }
 
     await tx
@@ -638,11 +628,23 @@ export async function updateProgram(
       .set(plan.set)
       .where(eq(workoutPrograms.id, programId));
 
-    return true;
+    return { previousDaysPerWeek: existing.daysPerWeek, daysPerWeek: plan.trimFromDay, droppedDays };
   });
 
-  if (!updated) {
+  if (!outcome) {
     return null;
+  }
+
+  if (outcome.droppedDays.length > 0) {
+    // Record what was dropped: if the follow-up PUT /:id/workouts never arrives, this is
+    // the only trace of which days the program had. Logged after the commit, so the line
+    // never describes a drop that was rolled back.
+    logInfo('programService.updateProgram', 'Dropped rotation days that no longer fit daysPerWeek', correlationId, {
+      programId,
+      previousDaysPerWeek: outcome.previousDaysPerWeek,
+      daysPerWeek: outcome.daysPerWeek,
+      droppedDays: outcome.droppedDays.map(({ dayNumber, templateId, dayLabel }) => ({ dayNumber, templateId, dayLabel }))
+    });
   }
 
   return getProgramById(programId, userId);
@@ -815,33 +817,44 @@ export async function deactivateProgram(
 }
 
 /**
- * Advance to next day in the program rotation
+ * Advance to next day in the program rotation.
+ *
+ * The next index is computed from the locked row: a save that changes daysPerWeek at the
+ * same moment cannot leave currentDayIndex pointing past the end of the rotation.
  */
 export async function advanceDay(
   programId: string,
   userId: string
 ): Promise<ProgramDetail | null> {
-  const existing = await verifyProgramOwnership(programId, userId);
-  if (!existing) {
+  const advanced = await db.transaction(async (tx) => {
+    const existing = await lockOwnedProgram(tx, programId, userId);
+    if (!existing) {
+      return false;
+    }
+
+    const nextDayIndex = (existing.currentDayIndex + 1) % existing.daysPerWeek;
+    const cycleCompleted = nextDayIndex === 0;
+
+    const updateData: Partial<typeof workoutPrograms.$inferInsert> = {
+      currentDayIndex: nextDayIndex,
+      updatedAt: new Date()
+    };
+
+    if (cycleCompleted) {
+      updateData.timesCompleted = existing.timesCompleted + 1;
+    }
+
+    await tx
+      .update(workoutPrograms)
+      .set(updateData)
+      .where(eq(workoutPrograms.id, programId));
+
+    return true;
+  });
+
+  if (!advanced) {
     return null;
   }
-
-  const nextDayIndex = (existing.currentDayIndex + 1) % existing.daysPerWeek;
-  const cycleCompleted = nextDayIndex === 0;
-
-  const updateData: Partial<typeof workoutPrograms.$inferInsert> = {
-    currentDayIndex: nextDayIndex,
-    updatedAt: new Date()
-  };
-
-  if (cycleCompleted) {
-    updateData.timesCompleted = existing.timesCompleted + 1;
-  }
-
-  await db
-    .update(workoutPrograms)
-    .set(updateData)
-    .where(eq(workoutPrograms.id, programId));
 
   return getProgramById(programId, userId);
 }

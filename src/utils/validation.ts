@@ -1387,7 +1387,11 @@ export function validateUpdateProgram(data: unknown, existingDaysPerWeek?: numbe
     } else if (input.workouts.length === 0) {
       errors.push('workouts array cannot be empty');
     } else {
-      const effectiveDaysPerWeek = sanitized.daysPerWeek ?? existingDaysPerWeek ?? PROGRAM_LIMITS.MAX_DAYS_PER_WEEK;
+      // A daysPerWeek that was sent but failed its own check must not be swapped for the
+      // stored value: the range errors would then describe a size the request never asked for.
+      const effectiveDaysPerWeek = input.daysPerWeek !== undefined
+        ? (sanitized.daysPerWeek ?? PROGRAM_LIMITS.MAX_DAYS_PER_WEEK)
+        : (existingDaysPerWeek ?? PROGRAM_LIMITS.MAX_DAYS_PER_WEEK);
       const workoutErrors = validateProgramWorkoutsArray(input.workouts, effectiveDaysPerWeek);
       errors.push(...workoutErrors);
       if (workoutErrors.length === 0) {

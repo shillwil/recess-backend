@@ -1,9 +1,9 @@
-// Wiring tests for the two functions that write a program's rotation.
+// Wiring tests for the functions that write a program inside a transaction.
 //
 // The database is replaced by recording fakes, so these tests pin down WHICH statements
 // run, in what order, and through which handle (the transaction, not the global db).
 // They cannot prove the SQL itself; the rules are covered in programService.test.ts
-// (planProgramUpdate) and the statements were exercised against a real Postgres.
+// (planProgramUpdate).
 
 jest.mock('../db', () => ({
   db: {
@@ -50,9 +50,15 @@ jest.mock('../utils/errorResponse', () => ({
 }));
 
 import { db } from '../db';
-import { programWeeks, workoutPrograms } from '../db/schema';
+import { programWeeks, workoutPrograms, workoutTemplates } from '../db/schema';
 import { logInfo } from '../utils/errorResponse';
-import { updateProgram, updateProgramWorkouts, ProgramValidationError } from './programService';
+import {
+  advanceDay,
+  createProgram,
+  updateProgram,
+  updateProgramWorkouts,
+  ProgramValidationError,
+} from './programService';
 
 const PROGRAM_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
@@ -83,7 +89,9 @@ const mockDb = db as unknown as { select: jest.Mock; transaction: jest.Mock };
 const mockLogInfo = logInfo as jest.Mock;
 
 /** The stored program as the locked SELECT returns it */
-function storedProgram(overrides: Partial<{ daysPerWeek: number; currentDayIndex: number }> = {}) {
+function storedProgram(
+  overrides: Partial<{ daysPerWeek: number; currentDayIndex: number; timesCompleted: number }> = {}
+) {
   return {
     id: PROGRAM_ID,
     userId: USER_ID,
@@ -105,7 +113,7 @@ function storedProgram(overrides: Partial<{ daysPerWeek: number; currentDayIndex
 const rotation = (...templateIds: string[]) =>
   templateIds.map((templateId, dayNumber) => ({ dayNumber, templateId }));
 
-describe('programService rotation writes', () => {
+describe('programService program writes', () => {
   /** Order in which the transaction's statements ran */
   let statements: string[];
   let lockQuery: Query;
@@ -117,13 +125,18 @@ describe('programService rotation writes', () => {
   /**
    * @param locked rows the locking SELECT returns ([] = program missing or not owned)
    * @param trimmedRows rows a `DELETE ... RETURNING` reports
+   * @param failures statements that reject instead of succeeding
    */
-  function arrangeTransaction(locked: unknown[], trimmedRows: unknown[] = [], insertError?: Error) {
+  function arrangeTransaction(
+    locked: unknown[],
+    trimmedRows: unknown[] = [],
+    failures: { insert?: Error; update?: Error } = {}
+  ) {
     statements = [];
     lockQuery = query(locked);
     deleteQuery = query(trimmedRows);
-    insertQuery = query(undefined, insertError);
-    updateQuery = query();
+    insertQuery = query(undefined, failures.insert);
+    updateQuery = query(undefined, failures.update);
     tx = {
       select: jest.fn(() => { statements.push('lock'); return lockQuery; }),
       delete: jest.fn(() => { statements.push('delete'); return deleteQuery; }),
@@ -133,11 +146,33 @@ describe('programService rotation writes', () => {
     mockDb.transaction.mockImplementation(async (callback: (handle: typeof tx) => Promise<unknown>) => callback(tx));
   }
 
-  /** Results for the queries that run on the global db, in call order */
+  /**
+   * Results for the queries that run on the global db, in call order.
+   * Any read beyond the ones listed finds no rows.
+   */
   function arrangeDbSelects(...results: unknown[][]) {
+    mockDb.select.mockReset();
+    mockDb.select.mockImplementation(() => query([]));
     for (const result of results) {
       mockDb.select.mockImplementationOnce(() => query(result));
     }
+  }
+
+  /** Tables the global db was asked to read from, in call order */
+  const tablesReadOutsideTransaction = () =>
+    mockDb.select.mock.results.map(result => (result.value as Query).from.mock.calls[0]?.[0]);
+
+  /** The lock is taken on the program row, scoped to its owner, with FOR UPDATE */
+  function expectOwnerScopedLock() {
+    expect(lockQuery.from).toHaveBeenCalledWith(workoutPrograms);
+    expect(lockQuery.where).toHaveBeenCalledWith({
+      op: 'and',
+      conditions: [
+        { op: 'eq', column: workoutPrograms.id, value: PROGRAM_ID },
+        { op: 'eq', column: workoutPrograms.userId, value: USER_ID },
+      ],
+    });
+    expect(lockQuery.for).toHaveBeenCalledWith('update');
   }
 
   const ownedTemplates = (...ids: string[]) => ids.map(id => ({ id }));
@@ -146,8 +181,8 @@ describe('programService rotation writes', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockDb.select.mockReset();
     mockDb.transaction.mockReset();
+    arrangeDbSelects();
   });
 
   describe('updateProgram', () => {
@@ -169,16 +204,18 @@ describe('programService rotation writes', () => {
       expect(mockDb.transaction).toHaveBeenCalledTimes(1);
       expect(statements).toEqual(['lock', 'delete', 'insert', 'update']);
 
-      // The row is read with FOR UPDATE and scoped to its owner
-      expect(lockQuery.from).toHaveBeenCalledWith(workoutPrograms);
-      expect(lockQuery.where).toHaveBeenCalledWith({
+      // The templates are looked up among the caller's own, not by id alone
+      const templateQuery = mockDb.select.mock.results[0].value as Query;
+      expect(templateQuery.from).toHaveBeenCalledWith(workoutTemplates);
+      expect(templateQuery.where).toHaveBeenCalledWith({
         op: 'and',
         conditions: [
-          { op: 'eq', column: workoutPrograms.id, value: PROGRAM_ID },
-          { op: 'eq', column: workoutPrograms.userId, value: USER_ID },
+          { op: 'inArray', column: workoutTemplates.id, values: [TEMPLATES.push, TEMPLATES.legs, TEMPLATES.pull] },
+          { op: 'eq', column: workoutTemplates.userId, value: USER_ID },
         ],
       });
-      expect(lockQuery.for).toHaveBeenCalledWith('update');
+
+      expectOwnerScopedLock();
 
       // Every stored day goes, not just the ones past the new daysPerWeek
       expect(tx.delete).toHaveBeenCalledWith(programWeeks);
@@ -199,7 +236,7 @@ describe('programService rotation writes', () => {
       }));
       expect(updateQuery.where).toHaveBeenCalledWith({ op: 'eq', column: workoutPrograms.id, value: PROGRAM_ID });
 
-      expect(result).toMatchObject({ id: PROGRAM_ID, daysPerWeek: 3, workouts: [] });
+      expect(result).toMatchObject({ id: PROGRAM_ID, daysPerWeek: 3 });
       expect(mockLogInfo).not.toHaveBeenCalled();
     });
 
@@ -246,9 +283,19 @@ describe('programService rotation writes', () => {
       expect(mockLogInfo).not.toHaveBeenCalled();
     });
 
+    it('does not log dropped days when the transaction fails after the delete', async () => {
+      // The delete is rolled back with the rest, so a log line would describe a drop that never happened
+      const dropped = [{ id: 'row-3', programId: PROGRAM_ID, weekNumber: 1, dayNumber: 3, templateId: TEMPLATES.arms, dayLabel: 'Arms', createdAt: new Date() }];
+      arrangeTransaction([storedProgram({ daysPerWeek: 4 })], dropped, { update: new Error('update failed') });
+
+      await expect(updateProgram(PROGRAM_ID, USER_ID, { daysPerWeek: 3 })).rejects.toThrow('update failed');
+
+      expect(statements).toEqual(['lock', 'delete', 'update']);
+      expect(mockLogInfo).not.toHaveBeenCalled();
+    });
+
     it('leaves the rotation alone for a metadata-only update that does not lower daysPerWeek', async () => {
       for (const updates of [{ name: 'Renamed' }, { daysPerWeek: 4 }, { daysPerWeek: 6 }, { durationWeeks: null }]) {
-        mockDb.select.mockReset();
         arrangeDbSelects(...reloadedProgram());
         arrangeTransaction([storedProgram({ daysPerWeek: 4 })]);
 
@@ -264,6 +311,7 @@ describe('programService rotation writes', () => {
       const result = await updateProgram(PROGRAM_ID, USER_ID, { daysPerWeek: 2 });
 
       expect(result).toBeNull();
+      expectOwnerScopedLock();
       expect(statements).toEqual(['lock']);
       expect(mockDb.select).not.toHaveBeenCalled(); // nothing is re-read either
     });
@@ -302,13 +350,13 @@ describe('programService rotation writes', () => {
 
       await updateProgram(PROGRAM_ID, USER_ID, { name: 'Renamed' });
 
-      // Only getProgramById's two reads ran on the global db
-      expect(mockDb.select).toHaveBeenCalledTimes(2);
+      // The reads on the global db are the reload, never a template lookup
+      expect(tablesReadOutsideTransaction()).toEqual([workoutPrograms, programWeeks]);
     });
 
-    it('lets a failing statement reject the transaction, so the caller never sees a half-applied save', async () => {
+    it('propagates a failing statement out of the transaction callback, before the program row is written', async () => {
       arrangeDbSelects(ownedTemplates(TEMPLATES.push, TEMPLATES.pull));
-      arrangeTransaction([storedProgram()], [], new Error('insert failed'));
+      arrangeTransaction([storedProgram()], [], { insert: new Error('insert failed') });
 
       const save = updateProgram(PROGRAM_ID, USER_ID, {
         daysPerWeek: 2,
@@ -337,7 +385,7 @@ describe('programService rotation writes', () => {
       );
 
       expect(statements).toEqual(['lock', 'delete', 'insert', 'update']);
-      expect(lockQuery.for).toHaveBeenCalledWith('update');
+      expectOwnerScopedLock();
       expect(deleteQuery.where).toHaveBeenCalledWith({ op: 'eq', column: programWeeks.programId, value: PROGRAM_ID });
       expect(insertQuery.values).toHaveBeenCalledWith([
         { programId: PROGRAM_ID, weekNumber: 1, dayNumber: 0, templateId: TEMPLATES.push, dayLabel: null },
@@ -345,6 +393,7 @@ describe('programService rotation writes', () => {
         { programId: PROGRAM_ID, weekNumber: 1, dayNumber: 2, templateId: TEMPLATES.legs, dayLabel: null },
       ]);
       expect(updateQuery.set).toHaveBeenCalledWith({ updatedAt: expect.any(Date) });
+      expect(updateQuery.where).toHaveBeenCalledWith({ op: 'eq', column: workoutPrograms.id, value: PROGRAM_ID });
       expect(result).toMatchObject({ id: PROGRAM_ID, daysPerWeek: 3 });
     });
 
@@ -370,6 +419,7 @@ describe('programService rotation writes', () => {
       const result = await updateProgramWorkouts(PROGRAM_ID, USER_ID, rotation(TEMPLATES.push));
 
       expect(result).toBeNull();
+      expectOwnerScopedLock();
       expect(statements).toEqual(['lock']);
     });
 
@@ -380,6 +430,78 @@ describe('programService rotation writes', () => {
       await expect(updateProgramWorkouts(PROGRAM_ID, USER_ID, rotation(TEMPLATES.push)))
         .rejects.toThrow(ProgramValidationError);
       expect(mockDb.transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('createProgram', () => {
+    it('refuses templates the user does not own before opening a transaction', async () => {
+      arrangeDbSelects(ownedTemplates(TEMPLATES.push)); // pull is missing
+      arrangeTransaction([]);
+
+      const create = createProgram(USER_ID, {
+        name: 'Push / Pull',
+        daysPerWeek: 2,
+        workouts: rotation(TEMPLATES.push, TEMPLATES.pull),
+      });
+
+      await expect(create).rejects.toThrow(ProgramValidationError);
+      await expect(create).rejects.toThrow(`Templates not found or not owned by user: ${TEMPLATES.pull}`);
+      expect(tablesReadOutsideTransaction()[0]).toBe(workoutTemplates);
+      expect(mockDb.transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('advanceDay', () => {
+    it('moves to the next day of the locked row, inside one transaction', async () => {
+      arrangeDbSelects(...reloadedProgram({ daysPerWeek: 3, currentDayIndex: 2 }));
+      arrangeTransaction([storedProgram({ daysPerWeek: 3, currentDayIndex: 1, timesCompleted: 2 })]);
+
+      const result = await advanceDay(PROGRAM_ID, USER_ID);
+
+      expect(mockDb.transaction).toHaveBeenCalledTimes(1);
+      expect(statements).toEqual(['lock', 'update']);
+      expectOwnerScopedLock();
+      expect(tx.update).toHaveBeenCalledWith(workoutPrograms);
+      // Mid-rotation: the cycle count is left alone
+      expect(updateQuery.set).toHaveBeenCalledWith({ currentDayIndex: 2, updatedAt: expect.any(Date) });
+      expect(updateQuery.where).toHaveBeenCalledWith({ op: 'eq', column: workoutPrograms.id, value: PROGRAM_ID });
+      expect(result).toMatchObject({ id: PROGRAM_ID, currentDayIndex: 2 });
+    });
+
+    it('wraps to day 0 after the last day and counts the completed cycle', async () => {
+      arrangeDbSelects(...reloadedProgram({ daysPerWeek: 3 }));
+      arrangeTransaction([storedProgram({ daysPerWeek: 3, currentDayIndex: 2, timesCompleted: 2 })]);
+
+      await advanceDay(PROGRAM_ID, USER_ID);
+
+      expect(updateQuery.set).toHaveBeenCalledWith({
+        currentDayIndex: 0,
+        timesCompleted: 3,
+        updatedAt: expect.any(Date),
+      });
+    });
+
+    it('wraps by the daysPerWeek the locked row has now, not one read earlier', async () => {
+      // A save just shortened the plan from 4 days to 3 while the pointer stayed on day 2
+      arrangeDbSelects(...reloadedProgram({ daysPerWeek: 3 }));
+      arrangeTransaction([storedProgram({ daysPerWeek: 3, currentDayIndex: 2 })]);
+
+      await advanceDay(PROGRAM_ID, USER_ID);
+
+      // Only the reload ran on the global db: nothing was read before the lock
+      expect(tablesReadOutsideTransaction()).toEqual([workoutPrograms, programWeeks]);
+      expect(updateQuery.set).toHaveBeenCalledWith(expect.objectContaining({ currentDayIndex: 0 }));
+    });
+
+    it('returns null and writes nothing when the program is missing or owned by someone else', async () => {
+      arrangeTransaction([]);
+
+      const result = await advanceDay(PROGRAM_ID, USER_ID);
+
+      expect(result).toBeNull();
+      expectOwnerScopedLock();
+      expect(statements).toEqual(['lock']);
+      expect(mockDb.select).not.toHaveBeenCalled();
     });
   });
 });

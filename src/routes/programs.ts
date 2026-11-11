@@ -226,7 +226,7 @@ router.post('/', programWriteLimiter, async (req: AuthenticatedRequest, res: Res
 
 /**
  * PUT /api/programs/:id
- * Update a program. Every field is optional:
+ * Update a program. Every field is optional, but at least one must be present:
  *   - name, description, daysPerWeek, durationWeeks: metadata
  *   - workouts: [{ dayNumber, templateId, dayLabel? }] replaces the whole rotation
  *

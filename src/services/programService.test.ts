@@ -187,6 +187,94 @@ describe('programService', () => {
       expect(finalDecoded).toEqual(originalData);
     });
   });
+
+  describe('planProgramUpdate', () => {
+    const templateId = '12345678-1234-1234-1234-123456789abc';
+    const rotation = (days: number) =>
+      Array.from({ length: days }, (_, dayNumber) => ({ dayNumber, templateId }));
+    const fourDayProgram = { daysPerWeek: 4, currentDayIndex: 0 };
+
+    it('should replace the rotation when removing a day (4 -> 3 with workouts)', () => {
+      const workouts = rotation(3);
+      const plan = planProgramUpdate(fourDayProgram, { daysPerWeek: 3, workouts });
+
+      expect(plan.replaceWorkouts).toEqual(workouts);
+      expect(plan.trimFromDay).toBeUndefined();
+      expect(plan.set.daysPerWeek).toBe(3);
+    });
+
+    it('should replace the rotation when adding a day (4 -> 5 with workouts)', () => {
+      const plan = planProgramUpdate(fourDayProgram, { daysPerWeek: 5, workouts: rotation(5) });
+
+      expect(plan.replaceWorkouts).toHaveLength(5);
+      expect(plan.trimFromDay).toBeUndefined();
+      expect(plan.set.daysPerWeek).toBe(5);
+    });
+
+    it('should check workouts against the stored daysPerWeek when the request does not change it', () => {
+      const plan = planProgramUpdate(fourDayProgram, { workouts: rotation(4) });
+
+      expect(plan.replaceWorkouts).toHaveLength(4);
+      expect(plan.set.daysPerWeek).toBeUndefined();
+
+      expect(() => planProgramUpdate(fourDayProgram, { workouts: rotation(5) }))
+        .toThrow(ProgramValidationError);
+    });
+
+    it('should refuse workouts that do not fit the new daysPerWeek', () => {
+      expect(() => planProgramUpdate(fourDayProgram, { daysPerWeek: 3, workouts: rotation(4) }))
+        .toThrow('Workout dayNumber 3 does not fit a program with 3 days per week (dayNumber must be between 0 and 2)');
+    });
+
+    it('should refuse a negative dayNumber', () => {
+      expect(() => planProgramUpdate(fourDayProgram, { workouts: [{ dayNumber: -1, templateId }] }))
+        .toThrow(ProgramValidationError);
+    });
+
+    it('should drop the days that no longer fit when daysPerWeek goes down without workouts', () => {
+      // What older app builds send first: metadata only, rotation in a second request
+      const plan = planProgramUpdate(fourDayProgram, { name: 'Push / Pull / Legs', daysPerWeek: 3 });
+
+      expect(plan.trimFromDay).toBe(3);
+      expect(plan.replaceWorkouts).toBeUndefined();
+      expect(plan.set.daysPerWeek).toBe(3);
+      expect(plan.set.name).toBe('Push / Pull / Legs');
+    });
+
+    it('should leave the rotation alone when daysPerWeek is unchanged, higher, or not sent', () => {
+      for (const updates of [{ daysPerWeek: 4 }, { daysPerWeek: 5 }, { name: 'Renamed' }]) {
+        const plan = planProgramUpdate(fourDayProgram, updates);
+
+        expect(plan.trimFromDay).toBeUndefined();
+        expect(plan.replaceWorkouts).toBeUndefined();
+      }
+    });
+
+    it('should reset currentDayIndex only when it would fall outside the new rotation', () => {
+      // Pointing at day 3, which a 3-day rotation no longer has
+      expect(planProgramUpdate({ daysPerWeek: 4, currentDayIndex: 3 }, { daysPerWeek: 3 }).set.currentDayIndex).toBe(0);
+      expect(planProgramUpdate({ daysPerWeek: 4, currentDayIndex: 3 }, { daysPerWeek: 3, workouts: rotation(3) }).set.currentDayIndex).toBe(0);
+
+      // Still inside the rotation: progress is left untouched
+      expect(planProgramUpdate({ daysPerWeek: 4, currentDayIndex: 2 }, { daysPerWeek: 3 }).set).not.toHaveProperty('currentDayIndex');
+      expect(planProgramUpdate({ daysPerWeek: 4, currentDayIndex: 3 }, { daysPerWeek: 5 }).set).not.toHaveProperty('currentDayIndex');
+      expect(planProgramUpdate({ daysPerWeek: 4, currentDayIndex: 3 }, { name: 'Renamed' }).set).not.toHaveProperty('currentDayIndex');
+
+      // The same holds when the rotation is replaced in the request
+      expect(planProgramUpdate({ daysPerWeek: 4, currentDayIndex: 2 }, { daysPerWeek: 3, workouts: rotation(3) }).set).not.toHaveProperty('currentDayIndex');
+      expect(planProgramUpdate({ daysPerWeek: 4, currentDayIndex: 2 }, { workouts: rotation(4) }).set).not.toHaveProperty('currentDayIndex');
+    });
+
+    it('should carry metadata changes and always bump updatedAt', () => {
+      const plan = planProgramUpdate(fourDayProgram, { name: 'New', description: '', durationWeeks: null });
+
+      expect(plan.set.name).toBe('New');
+      expect(plan.set.description).toBeNull(); // empty string clears the description
+      expect(plan.set.durationWeeks).toBeNull(); // null makes the program indefinite
+      expect(plan.set.updatedAt).toBeInstanceOf(Date);
+      expect(plan.set).not.toHaveProperty('daysPerWeek');
+    });
+  });
 });
 
 describe('program validation', () => {
@@ -541,6 +629,17 @@ describe('program validation', () => {
         expect(tooMany.errors).toContain('workouts[7].dayNumber must be between 0 and 6');
       });
 
+      it('should report only the daysPerWeek error when the daysPerWeek in the request is itself invalid', () => {
+        // The workouts must not be range-checked against the stored 4 the request is replacing
+        for (const daysPerWeek of [9, '5', 5.5]) {
+          const result = validateUpdateProgram({ daysPerWeek, workouts: rotation(5) }, 4);
+
+          expect(result.valid).toBe(false);
+          expect(result.errors).toHaveLength(1);
+          expect(result.errors[0]).toContain('daysPerWeek must be');
+        }
+      });
+
       it('should reject duplicate dayNumber values', () => {
         const result = validateUpdateProgram({
           workouts: [{ dayNumber: 0, templateId }, { dayNumber: 0, templateId }]
@@ -582,90 +681,6 @@ describe('program validation', () => {
         expect(result.valid).toBe(true);
         expect(result.sanitized).toEqual({ daysPerWeek: 3 });
       });
-    });
-  });
-
-  describe('planProgramUpdate', () => {
-    const templateId = '12345678-1234-1234-1234-123456789abc';
-    const rotation = (days: number) =>
-      Array.from({ length: days }, (_, dayNumber) => ({ dayNumber, templateId }));
-    const fourDayProgram = { daysPerWeek: 4, currentDayIndex: 0 };
-
-    it('should replace the rotation when removing a day (4 -> 3 with workouts)', () => {
-      const workouts = rotation(3);
-      const plan = planProgramUpdate(fourDayProgram, { daysPerWeek: 3, workouts });
-
-      expect(plan.replaceWorkouts).toBe(workouts);
-      expect(plan.trimFromDay).toBeUndefined();
-      expect(plan.set.daysPerWeek).toBe(3);
-    });
-
-    it('should replace the rotation when adding a day (4 -> 5 with workouts)', () => {
-      const plan = planProgramUpdate(fourDayProgram, { daysPerWeek: 5, workouts: rotation(5) });
-
-      expect(plan.replaceWorkouts).toHaveLength(5);
-      expect(plan.trimFromDay).toBeUndefined();
-      expect(plan.set.daysPerWeek).toBe(5);
-    });
-
-    it('should check workouts against the stored daysPerWeek when the request does not change it', () => {
-      const plan = planProgramUpdate(fourDayProgram, { workouts: rotation(4) });
-
-      expect(plan.replaceWorkouts).toHaveLength(4);
-      expect(plan.set.daysPerWeek).toBeUndefined();
-
-      expect(() => planProgramUpdate(fourDayProgram, { workouts: rotation(5) }))
-        .toThrow(ProgramValidationError);
-    });
-
-    it('should refuse workouts that do not fit the new daysPerWeek', () => {
-      expect(() => planProgramUpdate(fourDayProgram, { daysPerWeek: 3, workouts: rotation(4) }))
-        .toThrow('Workout dayNumber 3 does not fit a program with 3 days per week (dayNumber must be between 0 and 2)');
-    });
-
-    it('should refuse a negative dayNumber', () => {
-      expect(() => planProgramUpdate(fourDayProgram, { workouts: [{ dayNumber: -1, templateId }] }))
-        .toThrow(ProgramValidationError);
-    });
-
-    it('should drop the days that no longer fit when daysPerWeek goes down without workouts', () => {
-      // What older app builds send first: metadata only, rotation in a second request
-      const plan = planProgramUpdate(fourDayProgram, { name: 'Push / Pull / Legs', daysPerWeek: 3 });
-
-      expect(plan.trimFromDay).toBe(3);
-      expect(plan.replaceWorkouts).toBeUndefined();
-      expect(plan.set.daysPerWeek).toBe(3);
-      expect(plan.set.name).toBe('Push / Pull / Legs');
-    });
-
-    it('should leave the rotation alone when daysPerWeek is unchanged, higher, or not sent', () => {
-      for (const updates of [{ daysPerWeek: 4 }, { daysPerWeek: 5 }, { name: 'Renamed' }]) {
-        const plan = planProgramUpdate(fourDayProgram, updates);
-
-        expect(plan.trimFromDay).toBeUndefined();
-        expect(plan.replaceWorkouts).toBeUndefined();
-      }
-    });
-
-    it('should reset currentDayIndex only when it would fall outside the new rotation', () => {
-      // Pointing at day 3, which a 3-day rotation no longer has
-      expect(planProgramUpdate({ daysPerWeek: 4, currentDayIndex: 3 }, { daysPerWeek: 3 }).set.currentDayIndex).toBe(0);
-      expect(planProgramUpdate({ daysPerWeek: 4, currentDayIndex: 3 }, { daysPerWeek: 3, workouts: rotation(3) }).set.currentDayIndex).toBe(0);
-
-      // Still inside the rotation: progress is left untouched
-      expect(planProgramUpdate({ daysPerWeek: 4, currentDayIndex: 2 }, { daysPerWeek: 3 }).set).not.toHaveProperty('currentDayIndex');
-      expect(planProgramUpdate({ daysPerWeek: 4, currentDayIndex: 3 }, { daysPerWeek: 5 }).set).not.toHaveProperty('currentDayIndex');
-      expect(planProgramUpdate({ daysPerWeek: 4, currentDayIndex: 3 }, { name: 'Renamed' }).set).not.toHaveProperty('currentDayIndex');
-    });
-
-    it('should carry metadata changes and always bump updatedAt', () => {
-      const plan = planProgramUpdate(fourDayProgram, { name: 'New', description: '', durationWeeks: null });
-
-      expect(plan.set.name).toBe('New');
-      expect(plan.set.description).toBeNull(); // empty string clears the description
-      expect(plan.set.durationWeeks).toBeNull(); // null makes the program indefinite
-      expect(plan.set.updatedAt).toBeInstanceOf(Date);
-      expect(plan.set).not.toHaveProperty('daysPerWeek');
     });
   });
 

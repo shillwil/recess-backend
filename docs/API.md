@@ -429,7 +429,7 @@ Updates a program. Send only the fields that change; a full "Edit plan" save sen
 
 **Headers:**
 ```
-Authorization: Bearer <firebase-id-token>
+Authorization: Bearer <firebase_id_token>
 Content-Type: application/json
 ```
 
@@ -451,11 +451,21 @@ Content-Type: application/json
 |-------|------|-------------|
 | `name` | string? | 1-200 characters |
 | `description` | string? | Up to 1000 characters; `null` or `""` clears it |
-| `daysPerWeek` | integer? | 1-7, the length of the rotation |
+| `daysPerWeek` | integer? | 1-7. Every `dayNumber` must be below it; days without a workout are allowed |
 | `durationWeeks` | integer? | 1-52; `null` makes the program open-ended |
 | `workouts` | array? | Replaces the whole rotation. Not empty; each `dayNumber` is unique and between 0 and `daysPerWeek - 1` |
 
-An absent field is left unchanged. `workouts` is checked against the `daysPerWeek` in the same request, or against the stored value when the request does not send one.
+Each item of `workouts`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `dayNumber` | integer | 0-based position in the rotation |
+| `templateId` | string | UUID of a template the user owns |
+| `dayLabel` | string? | Up to 50 characters, counted before trimming; stored trimmed. `null` or `""` stores no label |
+
+Unknown keys inside an item are ignored; unknown top-level keys are rejected.
+
+An absent field is left unchanged, and at least one field must be present. `workouts` is checked against the `daysPerWeek` in the same request, or against the stored value when the request does not send one.
 
 **Behaviour:**
 - Metadata and rotation are written in one transaction: the save applies completely or not at all. This is the way to remove or add a day, because `daysPerWeek` and the days themselves have to change together.
@@ -475,10 +485,11 @@ An absent field is left unchanged. `workouts` is checked against the `daysPerWee
 
 | Status | `message` | When |
 |--------|-----------|------|
-| 400 | `Invalid request data` | The body failed validation (unknown field, bad type, `dayNumber` out of range or duplicated, empty `workouts`). The individual errors are in `details.validationErrors`, in development only |
+| 400 | `Invalid program ID format` | `:id` is not a UUID |
+| 400 | `Invalid request data` | The body failed validation (no known field, unknown field, bad type, `dayNumber` out of range or duplicated, empty `workouts`). The individual errors are in `details.validationErrors`, in development only |
 | 400 | `Templates not found or not owned by user: ...` | A `templateId` does not exist or belongs to another user |
 | 400 | `Workout dayNumber N does not fit a program with M days per week ...` | The program's `daysPerWeek` changed between validation and the write (another save won the race) |
-| 404 | `Program not found` | No such program for this user |
+| 404 | `Program not found` | No such program for this user. The program is looked up before the body is validated, so this wins over a 400 for the body |
 
 #### `PUT /api/programs/:id/workouts`
 
@@ -769,7 +780,7 @@ iOS builds released before `PUT /api/programs/:id` accepted `workouts` save a pl
 1. `PUT /api/programs/:id` with the metadata, including the new `daysPerWeek`
 2. `PUT /api/programs/:id/workouts` with the full rotation
 
-To keep those builds working when a day is removed, request 1 no longer fails when `daysPerWeek` goes down while later days still exist. It removes the days with `dayNumber >= daysPerWeek` (the templates themselves are untouched), and request 2 then writes the intended rotation. If request 2 never arrives, the program keeps its first `daysPerWeek` days; each removal is logged with the dropped `dayNumber`, `templateId` and `dayLabel`.
+To keep those builds working when a day is removed, request 1 no longer fails when `daysPerWeek` goes down while later days still exist. It removes the days with `dayNumber >= daysPerWeek` (the templates themselves are untouched), and request 2 then writes the intended rotation. If request 2 never arrives, the program keeps only the days whose `dayNumber` is below the new `daysPerWeek` (for a rotation with gaps that can be fewer than `daysPerWeek` days, or none); each removal is logged, once it is committed, with the dropped `dayNumber`, `templateId` and `dayLabel`.
 
 Clients that send `workouts` in request 1 are not affected: the rotation is replaced in the same transaction and nothing is trimmed.
 

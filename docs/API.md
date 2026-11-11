@@ -421,6 +421,71 @@ The endpoint previously returned a simpler format. Both formats are supported:
 
 ---
 
+### Programs
+
+#### `PUT /api/programs/:id`
+
+Updates a program. Send only the fields that change; a full "Edit plan" save sends the metadata and the rotation together.
+
+**Headers:**
+```
+Authorization: Bearer <firebase-id-token>
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "name": "Push / Pull / Legs",
+  "daysPerWeek": 3,
+  "durationWeeks": null,
+  "workouts": [
+    { "dayNumber": 0, "templateId": "uuid", "dayLabel": "Push" },
+    { "dayNumber": 1, "templateId": "uuid", "dayLabel": "Legs" },
+    { "dayNumber": 2, "templateId": "uuid", "dayLabel": "Pull" }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string? | 1-200 characters |
+| `description` | string? | Up to 1000 characters; `null` or `""` clears it |
+| `daysPerWeek` | integer? | 1-7, the length of the rotation |
+| `durationWeeks` | integer? | 1-52; `null` makes the program open-ended |
+| `workouts` | array? | Replaces the whole rotation. Not empty; each `dayNumber` is unique and between 0 and `daysPerWeek - 1` |
+
+An absent field is left unchanged. `workouts` is checked against the `daysPerWeek` in the same request, or against the stored value when the request does not send one.
+
+**Behaviour:**
+- Metadata and rotation are written in one transaction: the save applies completely or not at all. This is the way to remove or add a day, because `daysPerWeek` and the days themselves have to change together.
+- `currentDayIndex` goes back to 0 when the new `daysPerWeek` would leave it past the end of the rotation.
+- Without `workouts`, lowering `daysPerWeek` removes the days whose `dayNumber` no longer fits (see [Program saves in two requests](#program-saves-in-two-requests)).
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": { "program": { "id": "uuid", "daysPerWeek": 3, "currentDayIndex": 0, "workouts": [ ... ] } },
+  "correlationId": "req_..."
+}
+```
+
+**Errors:**
+
+| Status | `message` | When |
+|--------|-----------|------|
+| 400 | `Invalid request data` | The body failed validation (unknown field, bad type, `dayNumber` out of range or duplicated, empty `workouts`). The individual errors are in `details.validationErrors`, in development only |
+| 400 | `Templates not found or not owned by user: ...` | A `templateId` does not exist or belongs to another user |
+| 400 | `Workout dayNumber N does not fit a program with M days per week ...` | The program's `daysPerWeek` changed between validation and the write (another save won the race) |
+| 404 | `Program not found` | No such program for this user |
+
+#### `PUT /api/programs/:id/workouts`
+
+Replaces the rotation only: `{ "workouts": [ ... ] }`, same item shape and rules as above, validated against the stored `daysPerWeek`. New clients should prefer `workouts` on `PUT /api/programs/:id`, which can change `daysPerWeek` in the same step.
+
+---
+
 ### Data Sync
 
 #### `POST /api/sync`
@@ -696,6 +761,17 @@ The sync endpoint accepts both field naming conventions:
 | `exerciseTypePrimaryMuscles` | `exerciseTypeMuscleGroups` | Set data in sync payloads |
 
 The backend normalizes these automatically - send whichever your client version uses.
+
+### Program saves in two requests
+
+iOS builds released before `PUT /api/programs/:id` accepted `workouts` save a plan in two requests:
+
+1. `PUT /api/programs/:id` with the metadata, including the new `daysPerWeek`
+2. `PUT /api/programs/:id/workouts` with the full rotation
+
+To keep those builds working when a day is removed, request 1 no longer fails when `daysPerWeek` goes down while later days still exist. It removes the days with `dayNumber >= daysPerWeek` (the templates themselves are untouched), and request 2 then writes the intended rotation. If request 2 never arrives, the program keeps its first `daysPerWeek` days; each removal is logged with the dropped `dayNumber`, `templateId` and `dayLabel`.
+
+Clients that send `workouts` in request 1 are not affected: the rotation is replaced in the same transaction and nothing is trimmed.
 
 ### Response Format Stability
 

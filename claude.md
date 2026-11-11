@@ -241,6 +241,7 @@ DATABASE_URL="postgresql://postgres:password@localhost:5432/recess_dev" npm run 
 | POST | `/api/templates` | Yes | Create workout template |
 | GET | `/api/programs` | Yes | List user's programs |
 | POST | `/api/programs` | Yes | Create program |
+| PUT | `/api/programs/:id` | Yes | Update program metadata and, optionally, its whole rotation |
 | POST | `/api/sync` | Yes | Sync workout data from mobile |
 
 See `docs/API.md` for complete endpoint documentation.

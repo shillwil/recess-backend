@@ -15,6 +15,7 @@ import {
   advanceDay,
   resetProgress,
   verifyProgramOwnership,
+  ProgramValidationError,
 } from '../services/programService';
 import { ProgramListQuery } from '../models/program.types';
 import {
@@ -213,8 +214,8 @@ router.post('/', programWriteLimiter, async (req: AuthenticatedRequest, res: Res
   } catch (error) {
     logError('POST /api/programs', error, correlationId);
 
-    // Handle specific errors
-    if (error instanceof Error && error.message.includes('Templates not found')) {
+    // The request itself was the problem (e.g. a template the user does not own)
+    if (error instanceof ProgramValidationError) {
       sendErrorResponse(res, 400, error.message, undefined, correlationId);
       return;
     }
@@ -225,7 +226,17 @@ router.post('/', programWriteLimiter, async (req: AuthenticatedRequest, res: Res
 
 /**
  * PUT /api/programs/:id
- * Update program metadata (name, description, daysPerWeek, durationWeeks)
+ * Update a program. Every field is optional:
+ *   - name, description, daysPerWeek, durationWeeks: metadata
+ *   - workouts: [{ dayNumber, templateId, dayLabel? }] replaces the whole rotation
+ *
+ * Metadata and rotation are applied in one transaction, so clients should send both in
+ * this single request. Day numbers are validated against the daysPerWeek in the request,
+ * or the stored one when the request does not change it.
+ *
+ * Without `workouts`, a lower daysPerWeek drops the days that no longer fit. Older app
+ * builds rely on that: they send this request first and the rotation second, through
+ * PUT /api/programs/:id/workouts.
  */
 router.put('/:id', programWriteLimiter, async (req: AuthenticatedRequest, res: Response) => {
   const correlationId = getCorrelationId(req);
@@ -237,8 +248,22 @@ router.put('/:id', programWriteLimiter, async (req: AuthenticatedRequest, res: R
       return;
     }
 
-    // Validate request body
-    const validation = validateUpdateProgram(req.body);
+    // Get user
+    const user = await getOrCreateUser(req.user!);
+
+    // First fetch the program to get daysPerWeek for validation
+    const existingProgram = await verifyProgramOwnership(id, user.id);
+    if (!existingProgram) {
+      res.status(404).json({
+        success: false,
+        message: 'Program not found',
+        correlationId
+      });
+      return;
+    }
+
+    // Validate request body with the program's daysPerWeek
+    const validation = validateUpdateProgram(req.body, existingProgram.daysPerWeek);
     if (!validation.valid) {
       sendErrorResponse(res, 400, 'Invalid request data', undefined, correlationId, {
         validationErrors: validation.errors
@@ -246,10 +271,7 @@ router.put('/:id', programWriteLimiter, async (req: AuthenticatedRequest, res: R
       return;
     }
 
-    // Get user
-    const user = await getOrCreateUser(req.user!);
-
-    const program = await updateProgram(id, user.id, validation.sanitized!);
+    const program = await updateProgram(id, user.id, validation.sanitized!, correlationId);
 
     if (!program) {
       res.status(404).json({
@@ -273,8 +295,8 @@ router.put('/:id', programWriteLimiter, async (req: AuthenticatedRequest, res: R
   } catch (error) {
     logError('PUT /api/programs/:id', error, correlationId, { programId: req.params.id });
 
-    // Handle daysPerWeek reduction error (would orphan workouts)
-    if (error instanceof Error && error.message.includes('Cannot reduce daysPerWeek')) {
+    // The request itself was the problem (e.g. a template the user does not own)
+    if (error instanceof ProgramValidationError) {
       sendErrorResponse(res, 400, error.message, undefined, correlationId);
       return;
     }
@@ -413,8 +435,8 @@ router.put('/:id/workouts', programWriteLimiter, async (req: AuthenticatedReques
   } catch (error) {
     logError('PUT /api/programs/:id/workouts', error, correlationId, { programId: req.params.id });
 
-    // Handle specific errors
-    if (error instanceof Error && error.message.includes('Templates not found')) {
+    // The request itself was the problem (e.g. a template the user does not own)
+    if (error instanceof ProgramValidationError) {
       sendErrorResponse(res, 400, error.message, undefined, correlationId);
       return;
     }

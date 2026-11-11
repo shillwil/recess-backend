@@ -126,13 +126,18 @@ export interface CreateProgramInput {
 }
 
 /**
- * Input for updating program metadata
+ * Input for updating a program.
+ *
+ * Every field is optional. `workouts`, when present, replaces the whole rotation in the
+ * same transaction as the metadata, so a save that changes daysPerWeek and the days
+ * themselves either applies completely or not at all.
  */
 export interface UpdateProgramInput {
   name?: string;
   description?: string;
   daysPerWeek?: number;
   durationWeeks?: number | null;
+  workouts?: ProgramWorkoutInput[];
 }
 
 /**

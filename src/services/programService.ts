@@ -13,7 +13,8 @@ import {
   asc,
   inArray,
   SQL,
-  ne
+  ne,
+  gte
 } from 'drizzle-orm';
 import {
   ProgramListQuery,
@@ -28,6 +29,7 @@ import {
   ProgramWorkoutInput,
   ActiveProgramResponse,
 } from '../models/program.types';
+import { logInfo } from '../utils/errorResponse';
 
 // ============ Constants ============
 
@@ -130,6 +132,159 @@ async function validateTemplateIds(templateIds: string[], userId: string): Promi
   const missingIds = uniqueIds.filter(id => !existingIds.has(id));
 
   return missingIds;
+}
+
+/**
+ * A request this service refuses because of the data it carries, as opposed to an
+ * unexpected failure. Routes answer with a 400 and pass `message` on to the client.
+ */
+export class ProgramValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProgramValidationError';
+  }
+}
+
+/**
+ * Throws unless every template exists and belongs to the user
+ */
+async function assertTemplatesOwned(templateIds: string[], userId: string): Promise<void> {
+  const missingIds = await validateTemplateIds(templateIds, userId);
+  if (missingIds.length > 0) {
+    throw new ProgramValidationError(`Templates not found or not owned by user: ${missingIds.join(', ')}`);
+  }
+}
+
+/**
+ * Throws unless every workout sits on a day inside a rotation of `daysPerWeek` days.
+ *
+ * Routes run the same check before calling the service, but against a daysPerWeek they
+ * read earlier. This one runs against the locked row, so it is the one that counts.
+ */
+function assertWorkoutsFitRotation(workouts: ProgramWorkoutInput[], daysPerWeek: number): void {
+  const outside = workouts.find(w => w.dayNumber < 0 || w.dayNumber >= daysPerWeek);
+  if (outside) {
+    throw new ProgramValidationError(
+      `Workout dayNumber ${outside.dayNumber} does not fit a program with ${daysPerWeek} days per week ` +
+      `(dayNumber must be between 0 and ${daysPerWeek - 1})`
+    );
+  }
+}
+
+/** The transaction handle drizzle passes to a db.transaction callback */
+type ProgramTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Loads the user's program and locks its row until the transaction ends (SELECT ... FOR UPDATE).
+ *
+ * Two saves of the same program now run one after the other instead of interleaving, and
+ * anything decided from the returned row (daysPerWeek, currentDayIndex) is still true when
+ * the transaction writes.
+ */
+async function lockOwnedProgram(
+  tx: ProgramTransaction,
+  programId: string,
+  userId: string
+): Promise<typeof workoutPrograms.$inferSelect | null> {
+  const rows = await tx
+    .select()
+    .from(workoutPrograms)
+    .where(and(
+      eq(workoutPrograms.id, programId),
+      eq(workoutPrograms.userId, userId)
+    ))
+    .for('update');
+
+  return rows.length > 0 ? rows[0] : null;
+}
+
+/**
+ * Replaces every day of a program's rotation
+ */
+async function replaceRotation(
+  tx: ProgramTransaction,
+  programId: string,
+  workouts: ProgramWorkoutInput[]
+): Promise<void> {
+  await tx
+    .delete(programWeeks)
+    .where(eq(programWeeks.programId, programId));
+
+  if (workouts.length > 0) {
+    await tx.insert(programWeeks).values(
+      workouts.map((w) => ({
+        programId,
+        weekNumber: 1, // Always 1 for single-week programs
+        dayNumber: w.dayNumber,
+        templateId: w.templateId,
+        dayLabel: w.dayLabel || null,
+      }))
+    );
+  }
+}
+
+/**
+ * What an update does to a program, decided from the row as it is right now
+ */
+export interface ProgramUpdatePlan {
+  /** Column changes for the workout_programs row */
+  set: Partial<typeof workoutPrograms.$inferInsert>;
+  /** New rotation that replaces every stored day (the request carried `workouts`) */
+  replaceWorkouts?: ProgramWorkoutInput[];
+  /** Delete stored days with dayNumber >= this value (daysPerWeek went down without `workouts`) */
+  trimFromDay?: number;
+}
+
+/**
+ * Decides what an update does to a program.
+ *
+ * The rule being protected: every day of the rotation has a dayNumber below daysPerWeek.
+ * - A rotation in the request replaces the stored one, and must fit the daysPerWeek the
+ *   program will have after the update.
+ * - Without a rotation, lowering daysPerWeek drops the stored days that no longer fit.
+ *   Older app builds save in two requests (this one, then PUT /:id/workouts with the full
+ *   rotation); refusing here made it impossible for them to ever remove a day.
+ * - currentDayIndex goes back to 0 when the new daysPerWeek would leave it past the end.
+ *
+ * No database access, so these rules can be unit-tested directly.
+ */
+export function planProgramUpdate(
+  existing: Pick<typeof workoutPrograms.$inferSelect, 'daysPerWeek' | 'currentDayIndex'>,
+  updates: UpdateProgramInput
+): ProgramUpdatePlan {
+  const daysPerWeek = updates.daysPerWeek ?? existing.daysPerWeek;
+
+  const set: ProgramUpdatePlan['set'] = {
+    updatedAt: new Date()
+  };
+
+  if (updates.name !== undefined) {
+    set.name = updates.name;
+  }
+  if (updates.description !== undefined) {
+    set.description = updates.description || null;
+  }
+  if (updates.daysPerWeek !== undefined) {
+    set.daysPerWeek = updates.daysPerWeek;
+    // Reset currentDayIndex if it would become invalid
+    if (existing.currentDayIndex >= updates.daysPerWeek) {
+      set.currentDayIndex = 0;
+    }
+  }
+  if (updates.durationWeeks !== undefined) {
+    set.durationWeeks = updates.durationWeeks;
+  }
+
+  if (updates.workouts !== undefined) {
+    assertWorkoutsFitRotation(updates.workouts, daysPerWeek);
+    return { set, replaceWorkouts: updates.workouts };
+  }
+
+  if (daysPerWeek < existing.daysPerWeek) {
+    return { set, trimFromDay: daysPerWeek };
+  }
+
+  return { set };
 }
 
 /**
@@ -387,11 +542,7 @@ export async function createProgram(
   input: CreateProgramInput
 ): Promise<ProgramDetail> {
   // Validate template IDs exist and belong to user
-  const templateIds = input.workouts.map(w => w.templateId);
-  const missingIds = await validateTemplateIds(templateIds, userId);
-  if (missingIds.length > 0) {
-    throw new Error(`Templates not found or not owned by user: ${missingIds.join(', ')}`);
-  }
+  await assertTemplatesOwned(input.workouts.map(w => w.templateId), userId);
 
   // Use transaction to insert program and workouts atomically
   const result = await db.transaction(async (tx) => {
@@ -435,62 +586,64 @@ export async function createProgram(
 }
 
 /**
- * Update program metadata
+ * Update a program: its metadata, and optionally its whole rotation, in one transaction.
+ *
+ * See planProgramUpdate for the rules. Returns null when the program does not exist or
+ * belongs to someone else.
  */
 export async function updateProgram(
   programId: string,
   userId: string,
-  updates: UpdateProgramInput
+  updates: UpdateProgramInput,
+  correlationId?: string
 ): Promise<ProgramDetail | null> {
-  const existing = await verifyProgramOwnership(programId, userId);
-  if (!existing) {
+  // Runs on its own connection, so it stays outside the transaction below
+  if (updates.workouts !== undefined) {
+    await assertTemplatesOwned(updates.workouts.map(w => w.templateId), userId);
+  }
+
+  const updated = await db.transaction(async (tx) => {
+    const existing = await lockOwnedProgram(tx, programId, userId);
+    if (!existing) {
+      return false;
+    }
+
+    const plan = planProgramUpdate(existing, updates);
+
+    if (plan.replaceWorkouts !== undefined) {
+      await replaceRotation(tx, programId, plan.replaceWorkouts);
+    } else if (plan.trimFromDay !== undefined) {
+      const trimmed = await tx
+        .delete(programWeeks)
+        .where(and(
+          eq(programWeeks.programId, programId),
+          gte(programWeeks.dayNumber, plan.trimFromDay)
+        ))
+        .returning();
+
+      if (trimmed.length > 0) {
+        // Record what was dropped: if the follow-up PUT /:id/workouts never arrives,
+        // this is the only trace of which days the program had.
+        logInfo('programService.updateProgram', 'Dropped rotation days that no longer fit daysPerWeek', correlationId, {
+          programId,
+          previousDaysPerWeek: existing.daysPerWeek,
+          daysPerWeek: plan.trimFromDay,
+          droppedDays: trimmed.map(({ dayNumber, templateId, dayLabel }) => ({ dayNumber, templateId, dayLabel }))
+        });
+      }
+    }
+
+    await tx
+      .update(workoutPrograms)
+      .set(plan.set)
+      .where(eq(workoutPrograms.id, programId));
+
+    return true;
+  });
+
+  if (!updated) {
     return null;
   }
-
-  // If reducing daysPerWeek, check for orphaned workouts
-  if (updates.daysPerWeek !== undefined && updates.daysPerWeek < existing.daysPerWeek) {
-    const orphanedWorkouts = await db
-      .select({ id: programWeeks.id, dayNumber: programWeeks.dayNumber })
-      .from(programWeeks)
-      .where(and(
-        eq(programWeeks.programId, programId),
-        sql`${programWeeks.dayNumber} >= ${updates.daysPerWeek}`
-      ))
-      .limit(1);
-
-    if (orphanedWorkouts.length > 0) {
-      throw new Error(
-        `Cannot reduce daysPerWeek to ${updates.daysPerWeek}: workouts exist with dayNumber >= ${updates.daysPerWeek}. ` +
-        `Remove or reassign those workouts first.`
-      );
-    }
-  }
-
-  const updateData: Partial<typeof workoutPrograms.$inferInsert> = {
-    updatedAt: new Date()
-  };
-
-  if (updates.name !== undefined) {
-    updateData.name = updates.name;
-  }
-  if (updates.description !== undefined) {
-    updateData.description = updates.description || null;
-  }
-  if (updates.daysPerWeek !== undefined) {
-    updateData.daysPerWeek = updates.daysPerWeek;
-    // Reset currentDayIndex if it would become invalid
-    if (existing.currentDayIndex >= updates.daysPerWeek) {
-      updateData.currentDayIndex = 0;
-    }
-  }
-  if (updates.durationWeeks !== undefined) {
-    updateData.durationWeeks = updates.durationWeeks;
-  }
-
-  await db
-    .update(workoutPrograms)
-    .set(updateData)
-    .where(eq(workoutPrograms.id, programId));
 
   return getProgramById(programId, userId);
 }
@@ -572,43 +725,31 @@ export async function updateProgramWorkouts(
   userId: string,
   workoutsInput: ProgramWorkoutInput[]
 ): Promise<ProgramDetail | null> {
-  const existing = await verifyProgramOwnership(programId, userId);
-  if (!existing) {
-    return null;
-  }
+  // Runs on its own connection, so it stays outside the transaction below
+  await assertTemplatesOwned(workoutsInput.map(w => w.templateId), userId);
 
-  // Validate template IDs
-  const templateIds = workoutsInput.map(w => w.templateId);
-  const missingIds = await validateTemplateIds(templateIds, userId);
-  if (missingIds.length > 0) {
-    throw new Error(`Templates not found or not owned by user: ${missingIds.join(', ')}`);
-  }
-
-  await db.transaction(async (tx) => {
-    // Delete existing workouts
-    await tx
-      .delete(programWeeks)
-      .where(eq(programWeeks.programId, programId));
-
-    // Insert new workouts
-    if (workoutsInput.length > 0) {
-      await tx.insert(programWeeks).values(
-        workoutsInput.map((w) => ({
-          programId,
-          weekNumber: 1,
-          dayNumber: w.dayNumber,
-          templateId: w.templateId,
-          dayLabel: w.dayLabel || null,
-        }))
-      );
+  const updated = await db.transaction(async (tx) => {
+    const existing = await lockOwnedProgram(tx, programId, userId);
+    if (!existing) {
+      return false;
     }
+
+    assertWorkoutsFitRotation(workoutsInput, existing.daysPerWeek);
+
+    await replaceRotation(tx, programId, workoutsInput);
 
     // Update program's updatedAt
     await tx
       .update(workoutPrograms)
       .set({ updatedAt: new Date() })
       .where(eq(workoutPrograms.id, programId));
+
+    return true;
   });
+
+  if (!updated) {
+    return null;
+  }
 
   return getProgramById(programId, userId);
 }

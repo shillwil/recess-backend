@@ -1269,6 +1269,17 @@ function validateProgramWorkoutsArray(workouts: unknown[], daysPerWeek: number):
 }
 
 /**
+ * Builds the sanitized form of a workouts array that already passed validateProgramWorkoutsArray
+ */
+function sanitizeProgramWorkouts(workouts: unknown[]): Array<{ dayNumber: number; templateId: string; dayLabel?: string }> {
+  return (workouts as Array<Record<string, unknown>>).map((w) => ({
+    dayNumber: w.dayNumber as number,
+    templateId: w.templateId as string,
+    dayLabel: typeof w.dayLabel === 'string' ? w.dayLabel.trim() : undefined,
+  }));
+}
+
+/**
  * Update program validation result
  */
 export interface UpdateProgramValidationResult extends ValidationResult {
@@ -1277,13 +1288,22 @@ export interface UpdateProgramValidationResult extends ValidationResult {
     description?: string;
     daysPerWeek?: number;
     durationWeeks?: number | null;
+    workouts?: Array<{
+      dayNumber: number;
+      templateId: string;
+      dayLabel?: string;
+    }>;
   };
 }
 
 /**
- * Validates update program input
+ * Validates update program input.
+ *
+ * `workouts` is optional and replaces the whole rotation. Its day numbers are checked
+ * against the daysPerWeek the program will have AFTER the update: the value in this
+ * request when it carries one, otherwise the stored value passed as `existingDaysPerWeek`.
  */
-export function validateUpdateProgram(data: unknown): UpdateProgramValidationResult {
+export function validateUpdateProgram(data: unknown, existingDaysPerWeek?: number): UpdateProgramValidationResult {
   const errors: string[] = [];
   const sanitized: UpdateProgramValidationResult['sanitized'] = {};
 
@@ -1294,7 +1314,7 @@ export function validateUpdateProgram(data: unknown): UpdateProgramValidationRes
   const input = data as Record<string, unknown>;
 
   // Check for unknown fields
-  const allowedFields = ['name', 'description', 'daysPerWeek', 'durationWeeks'];
+  const allowedFields = ['name', 'description', 'daysPerWeek', 'durationWeeks', 'workouts'];
   const inputFields = Object.keys(input);
   const unknownFields = inputFields.filter(f => !allowedFields.includes(f));
 
@@ -1359,6 +1379,23 @@ export function validateUpdateProgram(data: unknown): UpdateProgramValidationRes
     }
   }
 
+  // Validate workouts (optional). Present means "replace the rotation", so anything that
+  // is not a usable array (null included) is an error rather than "not provided".
+  if (input.workouts !== undefined) {
+    if (!Array.isArray(input.workouts)) {
+      errors.push('workouts must be an array');
+    } else if (input.workouts.length === 0) {
+      errors.push('workouts array cannot be empty');
+    } else {
+      const effectiveDaysPerWeek = sanitized.daysPerWeek ?? existingDaysPerWeek ?? PROGRAM_LIMITS.MAX_DAYS_PER_WEEK;
+      const workoutErrors = validateProgramWorkoutsArray(input.workouts, effectiveDaysPerWeek);
+      errors.push(...workoutErrors);
+      if (workoutErrors.length === 0) {
+        sanitized.workouts = sanitizeProgramWorkouts(input.workouts);
+      }
+    }
+  }
+
   if (errors.length > 0) {
     return { valid: false, errors };
   }
@@ -1417,11 +1454,7 @@ export function validateProgramWorkouts(data: unknown, daysPerWeek: number): Upd
 
   // Build sanitized output
   const sanitized: UpdateProgramWorkoutsValidationResult['sanitized'] = {
-    workouts: (input.workouts as Array<Record<string, unknown>>).map((w) => ({
-      dayNumber: w.dayNumber as number,
-      templateId: w.templateId as string,
-      dayLabel: typeof w.dayLabel === 'string' ? w.dayLabel.trim() : undefined,
-    }))
+    workouts: sanitizeProgramWorkouts(input.workouts)
   };
 
   return { valid: true, errors: [], sanitized };
